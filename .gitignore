@@ -22,3 +22,7 @@ data.json
 .DS_Store
 docs-site/build
 docs-site/.docusaurus
+
+# Sample vault files
+SampleFiles/
+
