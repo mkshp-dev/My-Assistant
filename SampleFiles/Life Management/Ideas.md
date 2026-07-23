@@ -1,0 +1,6 @@
+---
+kind: ideas
+---
+
+# Ideas
+

@@ -1,11 +1,10 @@
 {
-	"id": "obsidian-template-plugin",
-	"name": "Obsidian Template Plugin",
+	"id": "My-Assistant",
+	"name": "My Assistant",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
+	"description": "Persona Progression Framework assistant plugin for Obsidian.",
+	"author": "Obsidian Guru",
 	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
 	"isDesktopOnly": false
 }
