@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://mkshp-dev.github.io/obsidian-template-plugin/
+    about: Check the comprehensive README for setup instructions and troubleshooting
+  - name: 💬 Discussions
+    url: https://github.com/mkshp-dev/obsidian-template-plugin/discussions
+    about: Ask questions and discuss ideas with the community

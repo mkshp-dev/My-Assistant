@@ -1,0 +1,36 @@
+# JulesOps kit version: v0.3.0
+julesops:
+  enabled: true
+
+  repository:
+    base_branch: main
+
+  queue:
+    queue_label: jules-queue
+    max_active_jobs: 1
+
+  states:
+    todo: status:todo
+    in_progress: status:in-progress
+    review: status:review
+    blocked: status:blocked
+    failed: status:failed
+    done: status:done
+
+  instructions:
+    core: .github/jules-core.md
+    repo: .github/jules-repo.md
+
+  blocked_comment:
+    marker: "## Blocked"
+
+  pull_request:
+    target_base_branch_only: true
+    require_issue_link: true
+
+  issue_completion:
+    close_on_merge: true
+
+  watchdog:
+    stale_in_progress_hours: 24
+    stale_review_hours: 72
