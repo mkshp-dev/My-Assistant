@@ -25,5 +25,29 @@ export class PersonaSettingTab extends PluginSettingTab {
 					this.plugin.settings.baseFolder = value.trim();
 					await this.plugin.saveSettings();
 				}));
+
+		new Setting(containerEl)
+			.setName('Maximum Allowed active tasks')
+			.setDesc('Maximum number of active tasks allowed (status not equal to done or future). Set to 0 for unlimited.')
+			.addText(text => text
+				.setPlaceholder('0')
+				.setValue(String(this.plugin.settings.maxActiveTasks ?? 0))
+				.onChange(async (value) => {
+					const parsed = parseInt(value.trim(), 10);
+					this.plugin.settings.maxActiveTasks = isNaN(parsed) || parsed < 0 ? 0 : parsed;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Maximum Allowed active quests')
+			.setDesc('Maximum number of active quests allowed (status: active). Set to 0 for unlimited.')
+			.addText(text => text
+				.setPlaceholder('0')
+				.setValue(String(this.plugin.settings.maxActiveQuests ?? 0))
+				.onChange(async (value) => {
+					const parsed = parseInt(value.trim(), 10);
+					this.plugin.settings.maxActiveQuests = isNaN(parsed) || parsed < 0 ? 0 : parsed;
+					await this.plugin.saveSettings();
+				}));
 	}
 }

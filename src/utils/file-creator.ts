@@ -1,5 +1,6 @@
 import { App, normalizePath, TFile } from 'obsidian';
-import { MilestoneItem, ObjectiveItem, PersonaItem, QuestItem, QuestStatus, StageItem } from '../types';
+import { MilestoneItem, ObjectiveItem, PersonaItem, PersonaPluginSettings, QuestItem, QuestStatus, StageItem } from '../types';
+import { getActiveQuestCount, getActiveTaskCount } from './vault-scanner';
 
 export async function ensureFolderExists(app: App, path: string): Promise<void> {
 	const normalizedPath = normalizePath(path.replace(/\\/g, '/')).trim();
@@ -143,7 +144,14 @@ status: active
 	return await app.vault.create(filePath, content);
 }
 
-export async function createQuest(app: App, objectiveItem: ObjectiveItem, name: string, status: QuestStatus): Promise<TFile> {
+export async function createQuest(app: App, objectiveItem: ObjectiveItem, name: string, status: QuestStatus, settings?: PersonaPluginSettings): Promise<TFile> {
+	if (status === 'active' && settings && settings.maxActiveQuests > 0) {
+		const currentActive = getActiveQuestCount(app);
+		if (currentActive >= settings.maxActiveQuests) {
+			throw new Error(`Maximum allowed active quests limit (${settings.maxActiveQuests}) reached.`);
+		}
+	}
+
 	const sanitizedName = name.trim();
 	const objectiveDir = getParentFolderPath(objectiveItem.file);
 	const questDir = objectiveDir ? `${objectiveDir}/${sanitizedName}` : sanitizedName;
@@ -171,7 +179,14 @@ status: ${status}
 	return await app.vault.create(filePath, content);
 }
 
-export async function createTask(app: App, questItem: QuestItem, name: string): Promise<TFile> {
+export async function createTask(app: App, questItem: QuestItem, name: string, settings?: PersonaPluginSettings): Promise<TFile> {
+	if (settings && settings.maxActiveTasks > 0) {
+		const currentActive = getActiveTaskCount(app);
+		if (currentActive >= settings.maxActiveTasks) {
+			throw new Error(`Maximum allowed active tasks limit (${settings.maxActiveTasks}) reached.`);
+		}
+	}
+
 	const sanitizedName = name.trim();
 	const questDir = getParentFolderPath(questItem.file);
 

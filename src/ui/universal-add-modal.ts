@@ -366,7 +366,7 @@ export class UniversalAddModal extends Modal {
 						new Notice('Please select a parent Objective.');
 						return;
 					}
-					createdFile = await createQuest(this.app, this.selectedObjective, name, this.questStatus);
+					createdFile = await createQuest(this.app, this.selectedObjective, name, this.questStatus, this.plugin.settings);
 					break;
 
 				case 'task':
@@ -374,7 +374,7 @@ export class UniversalAddModal extends Modal {
 						new Notice('Please select a parent Quest.');
 						return;
 					}
-					createdFile = await createTask(this.app, this.selectedQuest, name);
+					createdFile = await createTask(this.app, this.selectedQuest, name, this.plugin.settings);
 					break;
 			}
 

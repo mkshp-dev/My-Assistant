@@ -152,3 +152,46 @@ export function getQuests(app: App): QuestItem[] {
 
 	return quests.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+export function getActiveTaskCount(app: App): number {
+	const files = app.vault.getMarkdownFiles();
+	let count = 0;
+
+	for (const file of files) {
+		const cache = app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		if (!frontmatter) continue;
+
+		const kind = String(frontmatter.kind || '').toLowerCase();
+		if (kind === 'task') {
+			const status = String(frontmatter.status || 'active').toLowerCase();
+			if (status !== 'done' && status !== 'completed' && status !== 'future') {
+				count++;
+			}
+		}
+	}
+
+	return count;
+}
+
+export function getActiveQuestCount(app: App): number {
+	const files = app.vault.getMarkdownFiles();
+	let count = 0;
+
+	for (const file of files) {
+		const cache = app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		if (!frontmatter) continue;
+
+		const kind = String(frontmatter.kind || '').toLowerCase();
+		if (kind === 'quest') {
+			const status = String(frontmatter.status || 'active').toLowerCase();
+			if (status === 'active') {
+				count++;
+			}
+		}
+	}
+
+	return count;
+}
+

@@ -6,10 +6,14 @@ export type QuestStatus = 'active' | 'future' | 'completed';
 
 export interface PersonaPluginSettings {
 	baseFolder: string;
+	maxActiveTasks: number;
+	maxActiveQuests: number;
 }
 
 export const DEFAULT_SETTINGS: PersonaPluginSettings = {
-	baseFolder: 'Life Management'
+	baseFolder: 'Life Management',
+	maxActiveTasks: 0,
+	maxActiveQuests: 0
 };
 
 export interface PersonaItem {
