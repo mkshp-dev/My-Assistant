@@ -64,13 +64,13 @@ jobs:
       - name: Create PR
         if: steps.check.outputs.is_release == 'true'
         env:
-          # IMPORTANT: To trigger the push workflow on master,
+          # IMPORTANT: To trigger the push workflow on main,
           # replace github.token with a PAT (e.g. secrets.RELEASE_PAT)
           GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
         run: |
           BRANCH_NAME="release-temp-${{ steps.check.outputs.version }}"
           gh pr create \
-            --base master \
+            --base main \
             --head "$BRANCH_NAME" \
             --title "Release ${{ steps.check.outputs.version }}" \
             --body "Automated release PR"
@@ -84,7 +84,7 @@ jobs:
           BRANCH_NAME="release-temp-${{ steps.check.outputs.version }}"
           PR=$(gh pr list \
             --head "$BRANCH_NAME" \
-            --base master \
+            --base main \
             --json number \
             --jq '.[0].number')
 
