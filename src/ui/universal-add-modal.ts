@@ -1,8 +1,8 @@
 import { App, Modal, Notice, Setting } from 'obsidian';
 import type MyPlugin from '../../main';
-import { EntityKind, MilestoneItem, ObjectiveItem, PersonaItem, QuestItem, QuestStatus, StageItem } from '../types';
-import { createMilestone, createObjective, createPersona, createQuest, createStage, createTask } from '../utils/file-creator';
-import { getMilestones, getObjectives, getPersonas, getQuests, getStages } from '../utils/vault-scanner';
+import { DutyItem, EntityKind, MilestoneItem, ObjectiveItem, PersonaItem, QuestItem, QuestStatus, StageItem } from '../types';
+import { createDuty, createMilestone, createObjective, createPersona, createQuest, createStage, createTask } from '../utils/file-creator';
+import { getDuties, getMilestones, getObjectives, getPersonas, getQuests, getStages } from '../utils/vault-scanner';
 
 export class UniversalAddModal extends Modal {
 	plugin: MyPlugin;
@@ -13,6 +13,7 @@ export class UniversalAddModal extends Modal {
 	elementName = '';
 	baseFolder = '';
 	questStatus: QuestStatus = 'active';
+	dutyStatus: QuestStatus = 'active';
 
 	// Selected parent items
 	selectedPersona?: PersonaItem;
@@ -20,6 +21,8 @@ export class UniversalAddModal extends Modal {
 	selectedMilestone?: MilestoneItem;
 	selectedObjective?: ObjectiveItem;
 	selectedQuest?: QuestItem;
+	selectedDuty?: DutyItem;
+	selectedTaskParent?: { type: 'quest' | 'duty'; item: QuestItem | DutyItem };
 
 	constructor(app: App, plugin: MyPlugin) {
 		super(app);
@@ -41,6 +44,7 @@ export class UniversalAddModal extends Modal {
 			.addDropdown(dropdown => {
 				dropdown
 					.addOption('task', 'Task')
+					.addOption('duty', 'Duty')
 					.addOption('quest', 'Quest')
 					.addOption('objective', 'Objective')
 					.addOption('milestone', 'Milestone')
@@ -76,6 +80,9 @@ export class UniversalAddModal extends Modal {
 				break;
 			case 'quest':
 				this.renderQuestForm();
+				break;
+			case 'duty':
+				this.renderDutyForm();
 				break;
 			case 'task':
 				this.renderTaskForm();
@@ -272,32 +279,108 @@ export class UniversalAddModal extends Modal {
 			});
 	}
 
-	private renderTaskForm() {
-		const quests = getQuests(this.app);
+	private renderDutyForm() {
+		const objectives = getObjectives(this.app);
 
-		if (quests.length === 0) {
+		if (objectives.length === 0) {
 			this.formContainerEl.createEl('p', {
-				text: 'No Quests found in vault. Please create a Quest first.',
+				text: 'No Objectives found in vault. Please create an Objective first.',
 				cls: 'persona-warning-text'
 			});
 			return;
 		}
 
-		if (!this.selectedQuest) {
-			this.selectedQuest = quests[0];
+		if (!this.selectedObjective) {
+			this.selectedObjective = objectives[0];
 		}
 
 		new Setting(this.formContainerEl)
-			.setName('Add task to which quest?')
-			.setDesc('Select parent Quest')
+			.setName('Add duty to which objective?')
+			.setDesc('Select parent Objective')
 			.addDropdown(dropdown => {
-				quests.forEach((q, idx) => {
-					const label = q.objective ? `${q.name} (${q.persona} → ${q.objective})` : q.name;
+				objectives.forEach((obj, idx) => {
+					const label = obj.milestone ? `${obj.name} (${obj.persona} → ${obj.stage} → ${obj.milestone})` : obj.name;
 					dropdown.addOption(String(idx), label);
 				});
-				dropdown.setValue(String(quests.indexOf(this.selectedQuest || quests[0])));
+				dropdown.setValue(String(objectives.indexOf(this.selectedObjective || objectives[0])));
 				dropdown.onChange(idxStr => {
-					this.selectedQuest = quests[Number(idxStr)];
+					this.selectedObjective = objectives[Number(idxStr)];
+				});
+			});
+
+		new Setting(this.formContainerEl)
+			.setName('Duty Name')
+			.setDesc('Enter duty name (e.g. "Maintain Gallery Plugin")')
+			.addText(text => {
+				text.setPlaceholder('Duty Name')
+					.setValue(this.elementName)
+					.onChange(val => { this.elementName = val; });
+			});
+
+		new Setting(this.formContainerEl)
+			.setName('Status')
+			.setDesc('Status of the duty')
+			.addDropdown(dropdown => {
+				dropdown
+					.addOption('active', 'Active')
+					.addOption('future', 'Future')
+					.addOption('completed', 'Completed')
+					.setValue(this.dutyStatus)
+					.onChange(val => { this.dutyStatus = val as QuestStatus; });
+			});
+	}
+
+	private renderTaskForm() {
+		const quests = getQuests(this.app);
+		const duties = getDuties(this.app);
+
+		interface TaskParentOption {
+			type: 'quest' | 'duty';
+			item: QuestItem | DutyItem;
+			label: string;
+		}
+
+		const parentOptions: TaskParentOption[] = [
+			...quests.map(q => ({
+				type: 'quest' as const,
+				item: q,
+				label: `[Quest] ${q.name}${q.objective ? ` (${q.persona} → ${q.objective})` : ''}`
+			})),
+			...duties.map(d => ({
+				type: 'duty' as const,
+				item: d,
+				label: `[Duty] ${d.name}${d.objective ? ` (${d.persona} → ${d.objective})` : ''}`
+			}))
+		];
+
+		if (parentOptions.length === 0) {
+			this.formContainerEl.createEl('p', {
+				text: 'No Quests or Duties found in vault. Please create a Quest or Duty first.',
+				cls: 'persona-warning-text'
+			});
+			return;
+		}
+
+		if (!this.selectedTaskParent || !parentOptions.some(opt => opt.item === this.selectedTaskParent?.item)) {
+			this.selectedTaskParent = { type: parentOptions[0].type, item: parentOptions[0].item };
+		}
+
+		const currentIndex = parentOptions.findIndex(opt => opt.item === this.selectedTaskParent?.item);
+		const selectedIdx = currentIndex >= 0 ? currentIndex : 0;
+
+		new Setting(this.formContainerEl)
+			.setName('Add task to which Quest or Duty?')
+			.setDesc('Select parent Quest or Duty')
+			.addDropdown(dropdown => {
+				parentOptions.forEach((opt, idx) => {
+					dropdown.addOption(String(idx), opt.label);
+				});
+				dropdown.setValue(String(selectedIdx));
+				dropdown.onChange(idxStr => {
+					const chosen = parentOptions[Number(idxStr)];
+					if (chosen) {
+						this.selectedTaskParent = { type: chosen.type, item: chosen.item };
+					}
 				});
 			});
 
@@ -369,12 +452,20 @@ export class UniversalAddModal extends Modal {
 					createdFile = await createQuest(this.app, this.selectedObjective, name, this.questStatus, this.plugin.settings);
 					break;
 
-				case 'task':
-					if (!this.selectedQuest) {
-						new Notice('Please select a parent Quest.');
+				case 'duty':
+					if (!this.selectedObjective) {
+						new Notice('Please select a parent Objective.');
 						return;
 					}
-					createdFile = await createTask(this.app, this.selectedQuest, name, this.plugin.settings);
+					createdFile = await createDuty(this.app, this.selectedObjective, name, this.dutyStatus, this.plugin.settings);
+					break;
+
+				case 'task':
+					if (!this.selectedTaskParent) {
+						new Notice('Please select a parent Quest or Duty.');
+						return;
+					}
+					createdFile = await createTask(this.app, this.selectedTaskParent.item, name, this.plugin.settings, this.selectedTaskParent.type);
 					break;
 			}
 
@@ -394,3 +485,4 @@ export class UniversalAddModal extends Modal {
 		contentEl.empty();
 	}
 }
+

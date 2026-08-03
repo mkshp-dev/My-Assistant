@@ -1,6 +1,6 @@
 import { App, normalizePath, TFile } from 'obsidian';
-import { MilestoneItem, ObjectiveItem, PersonaItem, PersonaPluginSettings, QuestItem, QuestStatus, StageItem } from '../types';
-import { getActiveQuestCount, getActiveTaskCount } from './vault-scanner';
+import { DutyItem, MilestoneItem, ObjectiveItem, PersonaItem, PersonaPluginSettings, QuestItem, QuestStatus, StageItem } from '../types';
+import { getActiveDutyCount, getActiveQuestCount, getActiveTaskCount } from './vault-scanner';
 
 export async function ensureFolderExists(app: App, path: string): Promise<void> {
 	const normalizedPath = normalizePath(path.replace(/\\/g, '/')).trim();
@@ -179,7 +179,42 @@ status: ${status}
 	return await app.vault.create(filePath, content);
 }
 
-export async function createTask(app: App, questItem: QuestItem, name: string, settings?: PersonaPluginSettings): Promise<TFile> {
+export async function createDuty(app: App, objectiveItem: ObjectiveItem, name: string, status: QuestStatus, settings?: PersonaPluginSettings): Promise<TFile> {
+	if (status === 'active' && settings && settings.maxActiveDuties > 0) {
+		const currentActive = getActiveDutyCount(app);
+		if (currentActive >= settings.maxActiveDuties) {
+			throw new Error(`Maximum allowed active duties limit (${settings.maxActiveDuties}) reached.`);
+		}
+	}
+
+	const sanitizedName = name.trim();
+	const objectiveDir = getParentFolderPath(objectiveItem.file);
+	const dutyDir = objectiveDir ? `${objectiveDir}/${sanitizedName}` : sanitizedName;
+
+	await ensureFolderExists(app, dutyDir);
+
+	const filePath = normalizePath(`${dutyDir}/${sanitizedName}.md`);
+	const existingFile = app.vault.getAbstractFileByPath(filePath);
+	if (existingFile instanceof TFile) {
+		throw new Error(`File already exists: ${filePath}`);
+	}
+
+	const content = `---
+kind: duty
+persona: ${objectiveItem.persona}
+stage: ${objectiveItem.stage}
+milestone: ${objectiveItem.milestone}
+objective: ${objectiveItem.name}
+status: ${status}
+---
+
+# Duty: ${sanitizedName}
+`;
+
+	return await app.vault.create(filePath, content);
+}
+
+export async function createTask(app: App, parentItem: QuestItem | DutyItem, name: string, settings?: PersonaPluginSettings, parentType: 'quest' | 'duty' = 'quest'): Promise<TFile> {
 	if (settings && settings.maxActiveTasks > 0) {
 		const currentActive = getActiveTaskCount(app);
 		if (currentActive >= settings.maxActiveTasks) {
@@ -188,22 +223,23 @@ export async function createTask(app: App, questItem: QuestItem, name: string, s
 	}
 
 	const sanitizedName = name.trim();
-	const questDir = getParentFolderPath(questItem.file);
+	const parentDir = getParentFolderPath(parentItem.file);
 
-	await ensureFolderExists(app, questDir);
+	await ensureFolderExists(app, parentDir);
 
-	const filePath = normalizePath(`${questDir}/${sanitizedName}.md`);
+	const filePath = normalizePath(`${parentDir}/${sanitizedName}.md`);
 	const existingFile = app.vault.getAbstractFileByPath(filePath);
 	if (existingFile instanceof TFile) {
 		throw new Error(`File already exists: ${filePath}`);
 	}
 
+	const parentKey = parentType === 'duty' ? 'duty' : 'quest';
 	const content = `---
-quest: ${questItem.name}
-persona: ${questItem.persona}
-stage: ${questItem.stage}
-milestone: ${questItem.milestone}
-objective: ${questItem.objective}
+${parentKey}: ${parentItem.name}
+persona: ${parentItem.persona}
+stage: ${parentItem.stage}
+milestone: ${parentItem.milestone}
+objective: ${parentItem.objective}
 kind: task
 status: active
 ---

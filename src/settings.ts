@@ -49,5 +49,17 @@ export class PersonaSettingTab extends PluginSettingTab {
 					this.plugin.settings.maxActiveQuests = isNaN(parsed) || parsed < 0 ? 0 : parsed;
 					await this.plugin.saveSettings();
 				}));
+
+		new Setting(containerEl)
+			.setName('Maximum Allowed active duties')
+			.setDesc('Maximum number of active duties allowed (status: active). Set to 0 for unlimited.')
+			.addText(text => text
+				.setPlaceholder('0')
+				.setValue(String(this.plugin.settings.maxActiveDuties ?? 0))
+				.onChange(async (value) => {
+					const parsed = parseInt(value.trim(), 10);
+					this.plugin.settings.maxActiveDuties = isNaN(parsed) || parsed < 0 ? 0 : parsed;
+					await this.plugin.saveSettings();
+				}));
 	}
 }
