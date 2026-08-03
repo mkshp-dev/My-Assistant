@@ -1,5 +1,5 @@
 import { App } from 'obsidian';
-import { MilestoneItem, ObjectiveItem, PersonaItem, QuestItem, QuestStatus, StageItem } from '../types';
+import { DutyItem, MilestoneItem, ObjectiveItem, PersonaItem, QuestItem, QuestStatus, StageItem } from '../types';
 
 export function getPersonas(app: App): PersonaItem[] {
 	const files = app.vault.getMarkdownFiles();
@@ -194,4 +194,62 @@ export function getActiveQuestCount(app: App): number {
 
 	return count;
 }
+
+export function getDuties(app: App): DutyItem[] {
+	const files = app.vault.getMarkdownFiles();
+	const duties: DutyItem[] = [];
+
+	for (const file of files) {
+		const cache = app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		if (!frontmatter) continue;
+
+		const kind = String(frontmatter.kind || '').toLowerCase();
+		if (kind === 'duty') {
+			const status = String(frontmatter.status || 'active').toLowerCase();
+			if (status !== 'active') continue;
+
+			const name = frontmatter.duty || file.basename;
+			const objective = frontmatter.objective || '';
+			const milestone = frontmatter.milestone || '';
+			const stage = frontmatter.stage || '';
+			const persona = frontmatter.persona || '';
+			const dStatus = (frontmatter.status as QuestStatus) || 'active';
+			duties.push({
+				name,
+				objective,
+				milestone,
+				stage,
+				persona,
+				status: dStatus,
+				file,
+				path: file.path
+			});
+		}
+	}
+
+	return duties.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function getActiveDutyCount(app: App): number {
+	const files = app.vault.getMarkdownFiles();
+	let count = 0;
+
+	for (const file of files) {
+		const cache = app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		if (!frontmatter) continue;
+
+		const kind = String(frontmatter.kind || '').toLowerCase();
+		if (kind === 'duty') {
+			const status = String(frontmatter.status || 'active').toLowerCase();
+			if (status === 'active') {
+				count++;
+			}
+		}
+	}
+
+	return count;
+}
+
 
