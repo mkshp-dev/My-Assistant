@@ -1,7 +1,7 @@
 {
 	"id": "My-Assistant",
 	"name": "My Assistant",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"minAppVersion": "0.15.0",
 	"description": "Persona Progression Framework assistant plugin for Obsidian.",
 	"author": "Obsidian Guru",
