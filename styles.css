@@ -351,6 +351,21 @@
 	color: #94a3b8;
 }
 
+.guru-last-push {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+
+.guru-overdue-dot {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	background-color: #ef4444;
+	border-radius: 50%;
+	box-shadow: 0 0 6px #ef4444;
+}
+
 .guru-release-badge {
 	display: inline-flex;
 	align-items: center;

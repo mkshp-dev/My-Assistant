@@ -11,6 +11,7 @@ export interface PersonaPluginSettings {
 	maxActiveDuties: number;
 	unsplashAccessKey: string;
 	obsidianGuruRepos: string[];
+	repoReleasePeriods?: Record<string, number>;
 	githubToken: string;
 	lastGuruRefreshTime: string | null;
 }
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: PersonaPluginSettings = {
 	maxActiveDuties: 0,
 	unsplashAccessKey: '',
 	obsidianGuruRepos: [],
+	repoReleasePeriods: {},
 	githubToken: '',
 	lastGuruRefreshTime: null
 };

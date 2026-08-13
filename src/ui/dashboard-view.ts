@@ -93,6 +93,11 @@ export class DashboardView extends ItemView {
 	}
 
 	private renderCentralContent(contentWrapper: HTMLElement, mainWrapper: HTMLElement): void {
+		// Apply cached background if available
+		if (this.currentPhoto) {
+			this.applyBackground(this.currentPhoto);
+		}
+
 		// Top Section: Date & Time
 		const headerSection = contentWrapper.createDiv({ cls: 'dashboard-header-section' });
 		const dateBadge = headerSection.createDiv({ cls: 'dashboard-date-badge' });
@@ -106,9 +111,16 @@ export class DashboardView extends ItemView {
 		this.quoteEl = quoteWrapper.createDiv({ cls: 'dashboard-quote-text', text: 'Loading quote...' });
 		this.authorEl = quoteWrapper.createDiv({ cls: 'dashboard-quote-author', text: '' });
 
+		if (this.currentQuote) {
+			this.displayQuote(this.currentQuote);
+		}
+
 		// Bottom Container
 		const bottomSection = contentWrapper.createDiv({ cls: 'dashboard-bottom-section' });
 		this.creditEl = bottomSection.createDiv({ cls: 'dashboard-photo-credit' });
+		if (this.currentPhoto) {
+			this.displayCredit(this.currentPhoto);
+		}
 
 		// Action Toolbar
 		const toolbar = bottomSection.createDiv({ cls: 'dashboard-toolbar' });
@@ -140,7 +152,11 @@ export class DashboardView extends ItemView {
 
 	private async renderObsidianGuruContent(contentWrapper: HTMLElement, mainWrapper: HTMLElement): Promise<void> {
 		contentWrapper.empty();
-		if (!this.currentPhoto) this.loadBackground();
+		if (this.currentPhoto) {
+			this.applyBackground(this.currentPhoto);
+		} else {
+			this.loadBackground();
+		}
 
 		const previousRefreshTime = this.plugin.settings.lastGuruRefreshTime;
 		const currentRefreshIso = new Date().toISOString();
@@ -297,9 +313,32 @@ export class DashboardView extends ItemView {
 				footer.createDiv({ cls: 'guru-no-release', text: 'No releases' });
 			}
 
-			if (repo.pushed_at) {
-				const dateStr = new Date(repo.pushed_at).toLocaleDateString();
-				footer.createDiv({ cls: 'guru-last-push', text: `Updated ${dateStr}` });
+			// Calculate release recency & release period threshold
+			const releasePeriods = this.plugin.settings.repoReleasePeriods || {};
+			const repoKey = repo.full_name.toLowerCase();
+			const targetPeriod = releasePeriods[repoKey];
+
+			const releaseDate = repo.latest_release_date ? new Date(repo.latest_release_date) : null;
+			const now = new Date();
+			
+			const releaseTextEl = footer.createDiv({ cls: 'guru-last-push' });
+			let daysAgo: number | null = null;
+
+			if (releaseDate) {
+				const diffTime = Math.abs(now.getTime() - releaseDate.getTime());
+				daysAgo = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+				releaseTextEl.createSpan({ text: `Last released ${daysAgo} day${daysAgo === 1 ? '' : 's'} ago` });
+			} else {
+				releaseTextEl.createSpan({ text: 'Never released' });
+			}
+
+			// Add small red dot if release period target exists and is overdue (or never released)
+			if (targetPeriod !== undefined) {
+				const isOverdue = daysAgo === null || daysAgo > targetPeriod;
+				if (isOverdue) {
+					const warningDot = releaseTextEl.createSpan({ cls: 'guru-overdue-dot' });
+					warningDot.setAttr('title', `Overdue! Target release period is ${targetPeriod} days.`);
+				}
 			}
 		});
 	}
@@ -315,41 +354,51 @@ export class DashboardView extends ItemView {
 		}
 	}
 
-	private async loadQuote(mode: 'today' | 'random' = 'today'): Promise<void> {
-		if (this.quoteEl) this.quoteEl.setText('Loading quote...');
-		if (this.authorEl) this.authorEl.setText('');
-
-		this.currentQuote = await fetchZenQuote(mode);
+	private displayQuote(quote: ZenQuote): void {
 		if (this.quoteEl && this.authorEl) {
-			this.quoteEl.setText(`"${this.currentQuote.q}"`);
-			this.authorEl.setText(`— ${this.currentQuote.a}`);
+			this.quoteEl.setText(`"${quote.q}"`);
+			this.authorEl.setText(`— ${quote.a}`);
 		}
 	}
 
-	private async loadBackground(): Promise<void> {
-		const accessKey = this.plugin.settings.unsplashAccessKey;
-		this.currentPhoto = await fetchUnsplashPhoto(accessKey);
-
+	private applyBackground(photo: UnsplashPhoto | null): void {
 		if (this.bgLayerEl) {
-			if (this.currentPhoto?.url) {
-				this.bgLayerEl.style.backgroundImage = `url('${this.currentPhoto.url}')`;
+			if (photo?.url) {
+				this.bgLayerEl.style.backgroundImage = `url('${photo.url}')`;
 			} else {
 				this.bgLayerEl.style.backgroundImage = `linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%)`;
 			}
 		}
+	}
 
+	private displayCredit(photo: UnsplashPhoto | null): void {
 		if (this.creditEl) {
 			this.creditEl.empty();
-			if (this.currentPhoto?.authorName) {
+			if (photo?.authorName) {
 				this.creditEl.setText('Photo by ');
 				const authorLink = this.creditEl.createEl('a', {
-					text: this.currentPhoto.authorName,
-					href: this.currentPhoto.authorUrl || 'https://unsplash.com'
+					text: photo.authorName,
+					href: photo.authorUrl || 'https://unsplash.com'
 				});
 				authorLink.setAttr('target', '_blank');
 				this.creditEl.createSpan({ text: ' on Unsplash' });
 			}
 		}
+	}
+
+	private async loadQuote(mode: 'today' | 'random' = 'today'): Promise<void> {
+		if (this.quoteEl) this.quoteEl.setText('Loading quote...');
+		if (this.authorEl) this.authorEl.setText('');
+
+		this.currentQuote = await fetchZenQuote(mode);
+		this.displayQuote(this.currentQuote);
+	}
+
+	private async loadBackground(): Promise<void> {
+		const accessKey = this.plugin.settings.unsplashAccessKey;
+		this.currentPhoto = await fetchUnsplashPhoto(accessKey);
+		this.applyBackground(this.currentPhoto);
+		this.displayCredit(this.currentPhoto);
 	}
 
 	async onClose(): Promise<void> {

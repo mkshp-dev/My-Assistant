@@ -168,17 +168,37 @@ export class PersonaSettingTab extends PluginSettingTab {
 
 		new Setting(container)
 			.setName('Tracked GitHub Repositories')
-			.setDesc('Enter full repository names (e.g. owner/repo), one per line.')
+			.setDesc('Enter repository names with optional release period in days (e.g. owner/repo or owner/repo:14), one per line.')
 			.addTextArea(text => {
 				reposTextAreaEl = text.inputEl;
 				reposTextAreaEl.disabled = true;
-				text.setPlaceholder('obsidianmd/obsidian-sample-plugin\nusername/my-obsidian-plugin')
-					.setValue((this.plugin.settings.obsidianGuruRepos || []).join('\n'))
+				const currentRepos = this.plugin.settings.obsidianGuruRepos || [];
+				const releasePeriods = this.plugin.settings.repoReleasePeriods || {};
+				const formattedLines = currentRepos.map(r => {
+					const clean = r.trim().toLowerCase();
+					return releasePeriods[clean] ? `${r}:${releasePeriods[clean]}` : r;
+				});
+				text.setPlaceholder('obsidianmd/obsidian-sample-plugin:30\nusername/my-obsidian-plugin:14')
+					.setValue(formattedLines.join('\n'))
 					.onChange(async (value) => {
-						this.plugin.settings.obsidianGuruRepos = value
-							.split('\n')
-							.map(r => r.trim())
-							.filter(r => r.length > 0);
+						const lines = value.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+						const newRepos: string[] = [];
+						const newPeriods: Record<string, number> = {};
+
+						for (const line of lines) {
+							const parts = line.split(':');
+							if (parts.length >= 2 && !isNaN(parseInt(parts[parts.length - 1], 10))) {
+								const days = parseInt(parts.pop()!, 10);
+								const repoPath = parts.join(':').trim();
+								newRepos.push(repoPath);
+								newPeriods[repoPath.toLowerCase()] = days;
+							} else {
+								newRepos.push(line);
+							}
+						}
+
+						this.plugin.settings.obsidianGuruRepos = newRepos;
+						this.plugin.settings.repoReleasePeriods = newPeriods;
 						await this.plugin.saveSettings();
 					});
 				text.inputEl.rows = 5;
