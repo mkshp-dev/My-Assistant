@@ -61,5 +61,20 @@ export class PersonaSettingTab extends PluginSettingTab {
 					this.plugin.settings.maxActiveDuties = isNaN(parsed) || parsed < 0 ? 0 : parsed;
 					await this.plugin.saveSettings();
 				}));
+
+		containerEl.createEl('h2', { text: 'Dashboard Settings' });
+
+		new Setting(containerEl)
+			.setName('Unsplash Access Key')
+			.setDesc('Enter your Unsplash API Access Key to fetch random landscape background images for your dashboard. Leave blank to use built-in backdrops.')
+			.addText(text => {
+				text.inputEl.type = 'password';
+				text.setPlaceholder('Enter Unsplash Access Key')
+					.setValue(this.plugin.settings.unsplashAccessKey ?? '')
+					.onChange(async (value) => {
+						this.plugin.settings.unsplashAccessKey = value.trim();
+						await this.plugin.saveSettings();
+					});
+			});
 	}
 }

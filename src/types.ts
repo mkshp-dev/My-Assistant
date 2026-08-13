@@ -9,14 +9,28 @@ export interface PersonaPluginSettings {
 	maxActiveTasks: number;
 	maxActiveQuests: number;
 	maxActiveDuties: number;
+	unsplashAccessKey: string;
 }
 
 export const DEFAULT_SETTINGS: PersonaPluginSettings = {
 	baseFolder: 'Life Management',
 	maxActiveTasks: 0,
 	maxActiveQuests: 0,
-	maxActiveDuties: 0
+	maxActiveDuties: 0,
+	unsplashAccessKey: ''
 };
+
+export interface ZenQuote {
+	q: string;
+	a: string;
+	h?: string;
+}
+
+export interface UnsplashPhoto {
+	url: string;
+	authorName?: string;
+	authorUrl?: string;
+}
 
 export interface PersonaItem {
 	name: string;
