@@ -10,6 +10,9 @@ export interface PersonaPluginSettings {
 	maxActiveQuests: number;
 	maxActiveDuties: number;
 	unsplashAccessKey: string;
+	obsidianGuruRepos: string[];
+	githubToken: string;
+	lastGuruRefreshTime: string | null;
 }
 
 export const DEFAULT_SETTINGS: PersonaPluginSettings = {
@@ -17,7 +20,10 @@ export const DEFAULT_SETTINGS: PersonaPluginSettings = {
 	maxActiveTasks: 0,
 	maxActiveQuests: 0,
 	maxActiveDuties: 0,
-	unsplashAccessKey: ''
+	unsplashAccessKey: '',
+	obsidianGuruRepos: [],
+	githubToken: '',
+	lastGuruRefreshTime: null
 };
 
 export interface ZenQuote {
