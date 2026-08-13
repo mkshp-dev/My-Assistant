@@ -4,10 +4,11 @@ import { ZenQuote, UnsplashPhoto } from '../types';
 import { fetchZenQuote } from '../utils/zenquotes';
 import { fetchUnsplashPhoto } from '../utils/unsplash';
 import { fetchGitHubRepoDetails, GitHubRepoDetails, fetchGitHubRepoEvents, GitHubRepoEvent } from '../utils/github';
+import { fetchLichessUserData } from '../utils/lichess';
 
 export const DASHBOARD_VIEW_TYPE = 'my-assistant-dashboard';
 
-export type DashboardTab = 'central' | 'obsidian-guru';
+export type DashboardTab = 'central' | 'obsidian-guru' | 'mental-gymnast';
 
 export class DashboardView extends ItemView {
 	plugin: MyPlugin;
@@ -82,13 +83,26 @@ export class DashboardView extends ItemView {
 			}
 		});
 
+		const gymnastBtn = navBar.createEl('button', {
+			cls: `dashboard-nav-tab ${this.activeTab === 'mental-gymnast' ? 'is-active' : ''}`,
+			text: 'Mental Gymnast'
+		});
+		gymnastBtn.addEventListener('click', () => {
+			if (this.activeTab !== 'mental-gymnast') {
+				this.activeTab = 'mental-gymnast';
+				this.renderDashboard();
+			}
+		});
+
 		// Dynamic content container
 		this.contentContainerEl = mainWrapper.createDiv({ cls: 'dashboard-tab-content' });
 
 		if (this.activeTab === 'central') {
 			this.renderCentralContent(this.contentContainerEl, mainWrapper);
-		} else {
+		} else if (this.activeTab === 'obsidian-guru') {
 			this.renderObsidianGuruContent(this.contentContainerEl, mainWrapper);
+		} else {
+			this.renderMentalGymnastContent(this.contentContainerEl, mainWrapper);
 		}
 	}
 
@@ -341,6 +355,90 @@ export class DashboardView extends ItemView {
 				}
 			}
 		});
+	}
+
+	private async renderMentalGymnastContent(contentWrapper: HTMLElement, mainWrapper: HTMLElement): Promise<void> {
+		contentWrapper.empty();
+		if (this.currentPhoto) {
+			this.applyBackground(this.currentPhoto);
+		} else {
+			this.loadBackground();
+		}
+
+		const header = contentWrapper.createDiv({ cls: 'gymnast-header' });
+		const titleRow = header.createDiv({ cls: 'gymnast-header-title-row' });
+		const titleText = titleRow.createDiv({ cls: 'gymnast-title-text' });
+		titleText.createEl('h2', { text: 'Mental Gymnast Dashboard' });
+		titleText.createEl('p', { text: 'Sharpen your mind and track your cognitive & strategic growth.' });
+
+		const username = this.plugin.settings.lichessUsername || 'tomatopotato69';
+
+		const refreshBtn = titleRow.createEl('button', { cls: 'dashboard-btn', title: 'Refresh Lichess stats' });
+		setIcon(refreshBtn, 'refresh-cw');
+		refreshBtn.createSpan({ text: ' Refresh' });
+		refreshBtn.addEventListener('click', () => this.renderMentalGymnastContent(contentWrapper, mainWrapper));
+
+		const container = contentWrapper.createDiv({ cls: 'gymnast-container' });
+		const loadingMsg = container.createDiv({ cls: 'gymnast-loading-msg', text: `Fetching Lichess data for @${username}...` });
+
+		const lichessData = await fetchLichessUserData(username);
+		container.empty();
+
+		if (lichessData.error) {
+			const errorCard = container.createDiv({ cls: 'gymnast-error-card' });
+			errorCard.createEl('h3', { text: `Failed to load Lichess stats for @${username}` });
+			errorCard.createEl('p', { text: lichessData.error });
+			return;
+		}
+
+		const card = container.createDiv({ cls: 'gymnast-rapid-card' });
+
+		// Top Row: User details & Status
+		const cardHeader = card.createDiv({ cls: 'gymnast-card-header' });
+		const userTitleRow = cardHeader.createDiv({ cls: 'gymnast-user-title-row' });
+		
+		if (lichessData.title) {
+			userTitleRow.createSpan({ cls: 'gymnast-user-badge', text: lichessData.title });
+		}
+
+		const userLink = userTitleRow.createEl('a', { cls: 'gymnast-user-link', text: `@${lichessData.username}`, href: lichessData.url });
+		userLink.setAttr('target', '_blank');
+
+		const statusDot = userTitleRow.createSpan({ cls: `gymnast-status-dot ${lichessData.online ? 'is-online' : 'is-offline'}` });
+		statusDot.setAttr('title', lichessData.online ? 'Online on Lichess' : 'Offline');
+
+		// Main Rapid Stat Display
+		const rapidPerf = lichessData.perfs.rapid;
+		const statBody = card.createDiv({ cls: 'gymnast-rapid-body' });
+		
+		const labelRow = statBody.createDiv({ cls: 'gymnast-rapid-label' });
+		setIcon(labelRow, 'trophy');
+		labelRow.createSpan({ text: ' Lichess Rapid Rating' });
+
+		const ratingRow = statBody.createDiv({ cls: 'gymnast-rapid-rating-row' });
+		const ratingDisplay = rapidPerf?.rating ? rapidPerf.rating.toString() : 'Unrated';
+		ratingRow.createDiv({ cls: 'gymnast-rapid-rating-num', text: ratingDisplay });
+
+		if (rapidPerf?.prog !== undefined) {
+			const isPos = rapidPerf.prog > 0;
+			const isNeg = rapidPerf.prog < 0;
+			const sign = isPos ? '+' : '';
+			const trendClass = isPos ? 'trend-up' : isNeg ? 'trend-down' : 'trend-neutral';
+			const trendIcon = isPos ? 'trending-up' : isNeg ? 'trending-down' : 'minus';
+			
+			const trendBadge = ratingRow.createDiv({ cls: `gymnast-rapid-trend-badge ${trendClass}` });
+			setIcon(trendBadge, trendIcon);
+			trendBadge.createSpan({ text: `${sign}${rapidPerf.prog}` });
+		}
+
+		// Footer meta info
+		const cardFooter = card.createDiv({ cls: 'gymnast-rapid-footer' });
+		if (rapidPerf) {
+			cardFooter.createSpan({ text: `Total Games: ${rapidPerf.games}` });
+			if (rapidPerf.prov) {
+				cardFooter.createSpan({ cls: 'gymnast-prov-tag', text: 'Provisional' });
+			}
+		}
 	}
 
 	private updateClock(): void {

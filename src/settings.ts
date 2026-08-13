@@ -237,5 +237,18 @@ export class PersonaSettingTab extends PluginSettingTab {
 						}
 					});
 			});
+
+		// Mental Gymnast Settings
+		new Setting(container)
+			.setName('Mental Gymnast: Lichess Username')
+			.setDesc('Your Lichess username used to track chess rapid ratings.')
+			.addText(text => {
+				text.setPlaceholder('tomatopotato69')
+					.setValue(this.plugin.settings.lichessUsername || 'tomatopotato69')
+					.onChange(async (val) => {
+						this.plugin.settings.lichessUsername = val.trim();
+						await this.plugin.saveSettings();
+					});
+			});
 	}
 }

@@ -14,6 +14,7 @@ export interface PersonaPluginSettings {
 	repoReleasePeriods?: Record<string, number>;
 	githubToken: string;
 	lastGuruRefreshTime: string | null;
+	lichessUsername: string;
 }
 
 export const DEFAULT_SETTINGS: PersonaPluginSettings = {
@@ -25,7 +26,8 @@ export const DEFAULT_SETTINGS: PersonaPluginSettings = {
 	obsidianGuruRepos: [],
 	repoReleasePeriods: {},
 	githubToken: '',
-	lastGuruRefreshTime: null
+	lastGuruRefreshTime: null,
+	lichessUsername: 'tomatopotato69'
 };
 
 export interface ZenQuote {
