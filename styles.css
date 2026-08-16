@@ -262,14 +262,49 @@
 	margin-top: 2rem;
 }
 
-.guru-repo-grid {
+.guru-dashboard-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: 2rem;
 	width: 100%;
 	max-width: 1100px;
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-	gap: 1.25rem;
 	padding: 0.5rem;
 	box-sizing: border-box;
+}
+
+.guru-repo-stack-panel {
+	flex: 0 0 auto;
+}
+
+.guru-repo-stack {
+	position: relative;
+}
+
+.guru-repo-stack-card {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 300px;
+	height: 240px;
+	overflow: hidden;
+	cursor: pointer;
+	transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.guru-repo-stack-card:hover {
+	border-color: rgba(255, 255, 255, 0.4);
+	box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+}
+
+.guru-repo-stack-card.is-selected {
+	border-color: #60a5fa;
+	box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.5), 0 10px 26px rgba(0, 0, 0, 0.5);
+}
+
+.guru-history-panel {
+	flex: 1 1 380px;
+	min-width: 320px;
 }
 
 .guru-loading-msg {
@@ -560,6 +595,120 @@
 	font-weight: 600;
 }
 
+/* Supabase CLI Setup panel (Settings tab) */
+.supabase-cli-log {
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	padding: 0.75rem;
+	font-size: 0.75rem;
+	font-family: var(--font-monospace);
+	white-space: pre-wrap;
+	word-break: break-word;
+	max-height: 260px;
+	overflow-y: auto;
+	margin: 0.5rem 0 1rem;
+}
+
+.supabase-cli-actions-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+	margin: 0.5rem 0 1rem;
+}
+
+.supabase-cli-action {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.6rem 0.8rem;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	background: var(--background-secondary);
+	min-width: 130px;
+}
+
+.supabase-cli-badge {
+	font-size: 0.72rem;
+	font-weight: 600;
+	padding: 0.15rem 0.55rem;
+	border-radius: 10px;
+	background: var(--background-modifier-border);
+	color: var(--text-muted);
+	text-align: center;
+}
+
+.supabase-cli-badge.is-running {
+	background: rgba(234, 179, 8, 0.2);
+	color: #ca8a04;
+}
+
+.supabase-cli-badge.is-success {
+	background: rgba(34, 197, 94, 0.2);
+	color: #16a34a;
+}
+
+.supabase-cli-badge.is-failed {
+	background: rgba(239, 68, 68, 0.2);
+	color: #dc2626;
+}
+
+/* Tracked GitHub Repositories editor (Settings tab) */
+.guru-repo-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	margin: 0.5rem 0 1.5rem;
+}
+
+.guru-repo-row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	padding: 0.5rem;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+}
+
+.guru-repo-row-add {
+	border-style: dashed;
+	background: transparent;
+}
+
+.guru-repo-row-name {
+	flex: 1 1 220px;
+	min-width: 160px;
+}
+
+.guru-repo-row-period {
+	width: 90px;
+}
+
+.guru-repo-row-remove {
+	color: #dc2626;
+}
+
+.guru-repo-test-status {
+	flex-basis: 100%;
+	font-size: 0.78rem;
+	color: var(--text-muted);
+}
+
+.guru-repo-test-status:empty {
+	display: none;
+}
+
+.guru-repo-test-status.is-success {
+	color: #16a34a;
+}
+
+.guru-repo-test-status.is-failed {
+	color: #dc2626;
+}
+
 /* Mental Gymnast Dashboard Styles */
 .gymnast-header {
 	margin-bottom: 1.5rem;
@@ -607,6 +756,14 @@
 	color: #ffffff;
 }
 
+.gymnast-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: 1.5rem;
+	width: 100%;
+}
+
 .gymnast-rapid-card {
 	background: rgba(15, 23, 42, 0.75);
 	backdrop-filter: blur(16px);
@@ -618,9 +775,8 @@
 	display: flex;
 	flex-direction: column;
 	gap: 1.5rem;
-	max-width: 480px;
-	margin: 0 auto;
-	width: 100%;
+	flex: 0 1 380px;
+	min-width: 300px;
 }
 
 .gymnast-card-header {
@@ -764,4 +920,188 @@
 	padding: 0.1rem 0.4rem;
 	border-radius: 4px;
 	font-size: 0.75rem;
+}
+
+/* Shared History Chart Styles (Star History / Rapid Rating History) */
+.history-section {
+	background: rgba(15, 23, 42, 0.75);
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	border: 1px solid rgba(255, 255, 255, 0.15);
+	border-radius: 16px;
+	padding: 1.2rem 1.4rem 1.4rem;
+	width: 100%;
+	max-width: 1100px;
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+	box-sizing: border-box;
+}
+
+/* Inside a side-by-side row (Guru's stack+chart, Gymnast's card+chart), the
+   chart panel should flex to fill the remaining width, not carry the
+   standalone block's own top margin/max-width. */
+.guru-history-panel .history-section,
+.gymnast-row .history-section {
+	margin-top: 0;
+	max-width: none;
+	min-width: 0;
+	/* .history-section's own `width: 100%` (meant for standalone full-width
+	   use) becomes its flex-basis when it's a *direct* flex child — as in
+	   .gymnast-row — which claims the whole row's width and forces a wrap.
+	   Overriding both fixes that; harmless no-op for Guru, where the actual
+	   flex item is the .guru-history-panel wrapper, not this element. */
+	width: auto;
+	flex: 1 1 380px;
+}
+
+.history-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	flex-wrap: wrap;
+	margin-bottom: 0.8rem;
+}
+
+.history-header h3 {
+	margin: 0;
+	font-size: 1.05rem;
+	color: #ffffff;
+}
+
+.history-select {
+	background: rgba(255, 255, 255, 0.08);
+	color: #e2e8f0;
+	border: 1px solid rgba(255, 255, 255, 0.2);
+	border-radius: 8px;
+	padding: 0.35rem 0.6rem;
+	font-size: 0.85rem;
+	max-width: 220px;
+	cursor: pointer;
+	transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.history-select:hover {
+	background: rgba(255, 255, 255, 0.16);
+}
+
+.history-select.is-active {
+	background: #3987e5;
+	border-color: #3987e5;
+	color: #ffffff;
+	font-weight: 600;
+}
+
+.history-empty {
+	padding: 2rem 1rem;
+	text-align: center;
+	font-size: 0.85rem;
+	color: #94a3b8;
+}
+
+.history-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.9rem;
+	margin-bottom: 0.6rem;
+}
+
+.history-legend-item {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	font-size: 0.78rem;
+	color: #cbd5e1;
+}
+
+.history-legend-dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	display: inline-block;
+	flex-shrink: 0;
+}
+
+.history-chart-wrap {
+	position: relative;
+	width: 100%;
+}
+
+.history-svg {
+	width: 100%;
+	height: auto;
+	display: block;
+	overflow: visible;
+}
+
+.history-grid-line {
+	stroke: rgba(255, 255, 255, 0.08);
+	stroke-width: 1;
+	stroke-dasharray: 4 4;
+}
+
+.history-axis-label {
+	fill: #94a3b8;
+	font-size: 10px;
+}
+
+.history-line {
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.history-area {
+	pointer-events: none;
+}
+
+.history-point-label {
+	font-size: 10px;
+	font-weight: 700;
+}
+
+.history-crosshair {
+	stroke: rgba(255, 255, 255, 0.3);
+	stroke-width: 1;
+	pointer-events: none;
+}
+
+.history-hover-overlay {
+	cursor: crosshair;
+}
+
+.history-tooltip {
+	position: absolute;
+	top: 0;
+	pointer-events: none;
+	background: rgba(2, 6, 23, 0.92);
+	border: 1px solid rgba(255, 255, 255, 0.2);
+	border-radius: 8px;
+	padding: 0.5rem 0.7rem;
+	font-size: 0.75rem;
+	color: #e2e8f0;
+	white-space: nowrap;
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+	transition: opacity 0.1s ease;
+	z-index: 5;
+}
+
+.history-tooltip-date {
+	font-weight: 700;
+	color: #ffffff;
+	margin-bottom: 0.25rem;
+}
+
+.history-tooltip-row {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.1rem 0;
+}
+
+.history-tooltip-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	display: inline-block;
+	flex-shrink: 0;
 }

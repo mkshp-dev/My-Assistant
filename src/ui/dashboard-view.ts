@@ -1,18 +1,46 @@
-import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon, Notice } from 'obsidian';
 import type MyPlugin from '../../main';
 import { ZenQuote, UnsplashPhoto } from '../types';
 import { fetchZenQuote } from '../utils/zenquotes';
 import { fetchUnsplashPhoto } from '../utils/unsplash';
-import { fetchGitHubRepoDetails, GitHubRepoDetails, fetchGitHubRepoEvents, GitHubRepoEvent } from '../utils/github';
-import { fetchLichessUserData } from '../utils/lichess';
+import {
+	hasSupabaseConfig,
+	supabaseSelect,
+	supabaseInvoke,
+	TrackedRepoRow,
+	RepoLatestRow,
+	RepoStarHistoryRow,
+	RepoEventRow,
+	LichessLatestRow,
+	LichessRatingHistoryRow,
+	GithubRefreshResponse,
+	LichessRefreshResponse
+} from '../utils/supabase';
+import { renderHistoryChart, HistoryChartSeries, CATEGORICAL_PALETTE } from './history-chart';
 
 export const DASHBOARD_VIEW_TYPE = 'my-assistant-dashboard';
 
 export type DashboardTab = 'central' | 'obsidian-guru' | 'mental-gymnast';
 
+const REPO_STACK_CARD_OFFSET = 20;
+const REPO_STACK_CARD_HEIGHT = 240;
+const REPO_STACK_CARD_WIDTH = 300;
+
+/** Step-interpolated value of a sparse, date-sorted series as of `date` (last known value at or before it). */
+function valueAsOf(points: HistoryChartSeries['points'], date: string): number {
+	let value = 0;
+	for (const p of points) {
+		if (p.date > date) break;
+		value = p.value;
+	}
+	return value;
+}
+
 export class DashboardView extends ItemView {
 	plugin: MyPlugin;
 	private activeTab: DashboardTab = 'central';
+	private selectedStarRepo: string = 'all';
+	private repoStackOrder: string[] = [];
 
 	private currentQuote: ZenQuote | null = null;
 	private currentPhoto: UnsplashPhoto | null = null;
@@ -152,12 +180,7 @@ export class DashboardView extends ItemView {
 		const settingsBtn = toolbar.createEl('button', { cls: 'dashboard-btn', title: 'Open Settings' });
 		setIcon(settingsBtn, 'settings');
 		settingsBtn.createSpan({ text: ' Settings' });
-		settingsBtn.addEventListener('click', () => {
-			// @ts-ignore
-			this.app.setting.open();
-			// @ts-ignore
-			this.app.setting.openTabById(this.plugin.manifest.id);
-		});
+		settingsBtn.addEventListener('click', () => this.openSettings());
 
 		this.registerInterval(window.setInterval(() => this.updateClock(), 1000));
 		if (!this.currentQuote) this.loadQuote('today');
@@ -172,12 +195,9 @@ export class DashboardView extends ItemView {
 			this.loadBackground();
 		}
 
-		const previousRefreshTime = this.plugin.settings.lastGuruRefreshTime;
-		const currentRefreshIso = new Date().toISOString();
-
 		const header = contentWrapper.createDiv({ cls: 'guru-header' });
 		const headerTitleRow = header.createDiv({ cls: 'guru-header-title-row' });
-		
+
 		const titleTextWrapper = headerTitleRow.createDiv({ cls: 'guru-title-text' });
 		titleTextWrapper.createEl('h2', { text: 'Obsidian Guru - Plugin Developer Dashboard' });
 		titleTextWrapper.createEl('p', { text: 'Track and monitor your Obsidian plugin development repositories in real-time.' });
@@ -190,17 +210,12 @@ export class DashboardView extends ItemView {
 		const notifBadgeDot = notifBellBtn.createSpan({ cls: 'guru-notif-dot' });
 		notifBadgeDot.style.display = 'none';
 
-		// Refresh Button
-		const refreshBtn = headerActions.createEl('button', { cls: 'dashboard-btn guru-refresh-btn', title: 'Refresh statistics & notifications' });
+		// Refresh Button — invokes the github-refresh Edge Function to pull
+		// fresh data from GitHub right now (independent of the daily cron run).
+		const refreshBtn = headerActions.createEl('button', { cls: 'dashboard-btn guru-refresh-btn', title: 'Fetch fresh data from GitHub now' });
 		const refreshIconSpan = refreshBtn.createSpan({ cls: 'guru-refresh-icon' });
 		setIcon(refreshIconSpan, 'refresh-cw');
 		refreshBtn.createSpan({ text: ' Refresh' });
-		
-		refreshBtn.addEventListener('click', async () => {
-			refreshIconSpan.addClass('spin-anim');
-			refreshBtn.disabled = true;
-			await this.renderObsidianGuruContent(contentWrapper, mainWrapper);
-		});
 
 		// Popover Panel for Notifications
 		const notifDropdown = headerActions.createDiv({ cls: 'guru-notif-dropdown' });
@@ -220,140 +235,250 @@ export class DashboardView extends ItemView {
 		};
 		document.addEventListener('click', closeDropdownHandler);
 
-		const repos = this.plugin.settings.obsidianGuruRepos || [];
-
-		if (repos.length === 0) {
+		if (!hasSupabaseConfig(this.plugin)) {
 			const emptyState = contentWrapper.createDiv({ cls: 'guru-empty-state' });
-			emptyState.createEl('p', { text: 'No repositories configured for tracking.' });
-			const settingsBtn = emptyState.createEl('button', { cls: 'dashboard-btn', text: 'Configure Repositories in Settings' });
-			settingsBtn.addEventListener('click', () => {
-				// @ts-ignore
-				this.app.setting.open();
-				// @ts-ignore
-				this.app.setting.openTabById(this.plugin.manifest.id);
-			});
+			emptyState.createEl('p', { text: 'Connect Supabase in Settings to start tracking repositories.' });
+			const settingsBtn = emptyState.createEl('button', { cls: 'dashboard-btn', text: 'Open Settings' });
+			settingsBtn.addEventListener('click', () => this.openSettings());
 			return;
 		}
 
-		// Repos Grid Container
-		const grid = contentWrapper.createDiv({ cls: 'guru-repo-grid' });
-		grid.createDiv({ cls: 'guru-loading-msg', text: 'Fetching GitHub statistics...' });
+		const bodyContainer = contentWrapper.createDiv({ cls: 'guru-body' });
+		bodyContainer.createDiv({ cls: 'guru-loading-msg', text: 'Loading...' });
 
-		// Fetch repos & events in parallel
-		const [results, eventsNested] = await Promise.all([
-			Promise.all(repos.map(r => fetchGitHubRepoDetails(r, this.plugin.settings.githubToken))),
-			Promise.all(repos.map(r => fetchGitHubRepoEvents(r, previousRefreshTime, this.plugin.settings.githubToken)))
-		]);
+		// Cheap, Supabase-only reads — no external API calls happen just from
+		// opening this tab. All GitHub calls happen server-side, triggered
+		// either by the Refresh button below or the daily Supabase cron job.
+		const renderFromViews = async () => {
+			bodyContainer.empty();
 
-		// Save current refresh time to settings
-		this.plugin.settings.lastGuruRefreshTime = currentRefreshIso;
-		await this.plugin.saveSettings();
+			const [trackedRepos, latestRows, eventRows, starHistoryRows] = await Promise.all([
+				supabaseSelect<TrackedRepoRow>(this.plugin, 'v_tracked_repos'),
+				supabaseSelect<RepoLatestRow>(this.plugin, 'v_repo_latest'),
+				supabaseSelect<RepoEventRow>(this.plugin, 'v_repo_events_recent', 'order=created_at.desc&limit=10'),
+				supabaseSelect<RepoStarHistoryRow>(this.plugin, 'v_repo_star_history')
+			]);
 
-		// Flatten & sort events descending
-		const allEvents: GitHubRepoEvent[] = eventsNested.flat().sort(
-			(a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-		);
-
-		// Render Notifications inside Dropdown Popover
-		notifDropdown.empty();
-		const dropdownHeader = notifDropdown.createDiv({ cls: 'guru-dropdown-header' });
-		dropdownHeader.createEl('h4', { text: 'Notifications' });
-		
-		const timeDisplayStr = new Date(currentRefreshIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-		dropdownHeader.createSpan({ cls: 'guru-dropdown-sub', text: `Refreshed: ${timeDisplayStr}` });
-
-		const dropdownList = notifDropdown.createDiv({ cls: 'guru-dropdown-list' });
-
-		if (allEvents.length > 0) {
-			notifBadgeDot.style.display = 'inline-block';
-
-			allEvents.slice(0, 10).forEach(ev => {
-				const item = dropdownList.createDiv({ cls: 'guru-notif-item' });
-				
-				const top = item.createDiv({ cls: 'guru-notif-top' });
-				const titleLink = top.createEl('a', { text: `${ev.repoName}: ${ev.title}`, href: ev.url || '#' });
-				titleLink.setAttr('target', '_blank');
-				
-				top.createSpan({ cls: 'guru-notif-time', text: new Date(ev.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
-				
-				if (ev.detail) {
-					item.createDiv({ cls: 'guru-notif-detail', text: ev.detail });
-				}
-			});
-		} else {
-			notifBadgeDot.style.display = 'none';
-			dropdownList.createDiv({ cls: 'guru-notif-empty', text: '✨ No new activity since last refresh' });
-		}
-
-		// Render repo cards
-		grid.empty();
-		results.forEach(repo => {
-			const card = grid.createDiv({ cls: 'guru-repo-card' });
-			
-			const cardHeader = card.createDiv({ cls: 'guru-card-header' });
-			const repoLink = cardHeader.createEl('a', { text: repo.full_name, href: repo.html_url });
-			repoLink.setAttr('target', '_blank');
-
-			if (repo.error) {
-				card.createDiv({ cls: 'guru-repo-error', text: `Error: ${repo.error}` });
+			if (trackedRepos.length === 0) {
+				const emptyState = bodyContainer.createDiv({ cls: 'guru-empty-state' });
+				emptyState.createEl('p', { text: 'No repositories configured for tracking.' });
+				const settingsBtn = emptyState.createEl('button', { cls: 'dashboard-btn', text: 'Configure Repositories in Settings' });
+				settingsBtn.addEventListener('click', () => this.openSettings());
 				return;
 			}
 
-			if (repo.description) {
-				card.createDiv({ cls: 'guru-repo-desc', text: repo.description });
-			}
+			// Render Notifications inside Dropdown Popover
+			notifDropdown.empty();
+			const dropdownHeader = notifDropdown.createDiv({ cls: 'guru-dropdown-header' });
+			dropdownHeader.createEl('h4', { text: 'Notifications' });
+			dropdownHeader.createSpan({ cls: 'guru-dropdown-sub', text: 'Recent activity' });
 
-			const statsRow = card.createDiv({ cls: 'guru-stats-row' });
+			const dropdownList = notifDropdown.createDiv({ cls: 'guru-dropdown-list' });
 
-			const starStat = statsRow.createDiv({ cls: 'guru-stat-item' });
-			setIcon(starStat, 'star');
-			starStat.createSpan({ text: ` ${repo.stargazers_count} stars` });
+			if (eventRows.length > 0) {
+				notifBadgeDot.style.display = 'inline-block';
 
-			const issueStat = statsRow.createDiv({ cls: 'guru-stat-item' });
-			setIcon(issueStat, 'alert-circle');
-			issueStat.createSpan({ text: ` ${repo.open_issues_count} open issues` });
+				eventRows.forEach(ev => {
+					const item = dropdownList.createDiv({ cls: 'guru-notif-item' });
 
-			const forkStat = statsRow.createDiv({ cls: 'guru-stat-item' });
-			setIcon(forkStat, 'git-fork');
-			forkStat.createSpan({ text: ` ${repo.forks_count} forks` });
+					const top = item.createDiv({ cls: 'guru-notif-top' });
+					const titleLink = top.createEl('a', { text: `${ev.repo_full_name}: ${ev.title}`, href: ev.url || '#' });
+					titleLink.setAttr('target', '_blank');
 
-			const footer = card.createDiv({ cls: 'guru-card-footer' });
-			if (repo.latest_release_tag) {
-				const releaseBadge = footer.createDiv({ cls: 'guru-release-badge' });
-				setIcon(releaseBadge, 'tag');
-				const relLink = releaseBadge.createEl('a', { text: repo.latest_release_tag, href: repo.latest_release_url || repo.html_url });
-				relLink.setAttr('target', '_blank');
+					top.createSpan({ cls: 'guru-notif-time', text: new Date(ev.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+
+					if (ev.detail) {
+						item.createDiv({ cls: 'guru-notif-detail', text: ev.detail });
+					}
+				});
 			} else {
-				footer.createDiv({ cls: 'guru-no-release', text: 'No releases' });
+				notifBadgeDot.style.display = 'none';
+				dropdownList.createDiv({ cls: 'guru-notif-empty', text: '✨ No recent activity' });
 			}
 
-			// Calculate release recency & release period threshold
-			const releasePeriods = this.plugin.settings.repoReleasePeriods || {};
-			const repoKey = repo.full_name.toLowerCase();
-			const targetPeriod = releasePeriods[repoKey];
-
-			const releaseDate = repo.latest_release_date ? new Date(repo.latest_release_date) : null;
-			const now = new Date();
-			
-			const releaseTextEl = footer.createDiv({ cls: 'guru-last-push' });
-			let daysAgo: number | null = null;
-
-			if (releaseDate) {
-				const diffTime = Math.abs(now.getTime() - releaseDate.getTime());
-				daysAgo = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-				releaseTextEl.createSpan({ text: `Last released ${daysAgo} day${daysAgo === 1 ? '' : 's'} ago` });
-			} else {
-				releaseTextEl.createSpan({ text: 'Never released' });
+			// Reconcile the card-stack order with the current tracked-repo list:
+			// keep existing order, drop removed repos, append any new ones at the back.
+			const trackedNames = trackedRepos.map(r => r.repo_full_name);
+			this.repoStackOrder = this.repoStackOrder.filter(name => trackedNames.includes(name));
+			trackedNames.forEach(name => {
+				if (!this.repoStackOrder.includes(name)) this.repoStackOrder.push(name);
+			});
+			if (this.selectedStarRepo !== 'all' && !trackedNames.includes(this.selectedStarRepo)) {
+				this.selectedStarRepo = 'all';
 			}
 
-			// Add small red dot if release period target exists and is overdue (or never released)
-			if (targetPeriod !== undefined) {
-				const isOverdue = daysAgo === null || daysAgo > targetPeriod;
-				if (isOverdue) {
-					const warningDot = releaseTextEl.createSpan({ cls: 'guru-overdue-dot' });
-					warningDot.setAttr('title', `Overdue! Target release period is ${targetPeriod} days.`);
+			const latestByRepo = new Map(latestRows.map(r => [r.repo_full_name.toLowerCase(), r]));
+			const seriesForRepo = (repoFullName: string): HistoryChartSeries['points'] =>
+				starHistoryRows
+					.filter(row => row.repo_full_name.toLowerCase() === repoFullName.toLowerCase())
+					.map(row => ({ date: row.snapshot_date, value: row.stargazers_count }))
+					.sort((a, b) => a.date.localeCompare(b.date));
+
+			// Repo card deck (left) + star history chart (right)
+			const dashboardRow = bodyContainer.createDiv({ cls: 'guru-dashboard-row' });
+			const stackPanel = dashboardRow.createDiv({ cls: 'guru-repo-stack-panel' });
+			const historyPanel = dashboardRow.createDiv({ cls: 'guru-history-panel' });
+
+			const renderStackAndChart = () => {
+				// --- Card stack ---
+				stackPanel.empty();
+				const stackEl = stackPanel.createDiv({ cls: 'guru-repo-stack' });
+				const stackHeight = REPO_STACK_CARD_HEIGHT + (this.repoStackOrder.length - 1) * REPO_STACK_CARD_OFFSET;
+				const stackWidth = REPO_STACK_CARD_WIDTH + (this.repoStackOrder.length - 1) * REPO_STACK_CARD_OFFSET;
+				stackEl.style.height = `${stackHeight}px`;
+				stackEl.style.width = `${stackWidth}px`;
+
+				this.repoStackOrder.forEach((name, pos) => {
+					const tracked = trackedRepos.find(r => r.repo_full_name === name);
+					if (!tracked) return;
+					const repo = latestByRepo.get(name.toLowerCase());
+
+					const card = stackEl.createDiv({ cls: 'guru-repo-card guru-repo-stack-card' });
+					card.style.zIndex = String(this.repoStackOrder.length - pos);
+					card.style.transform = `translate(${pos * REPO_STACK_CARD_OFFSET}px, ${pos * REPO_STACK_CARD_OFFSET}px)`;
+					if (pos === 0 && this.selectedStarRepo === name) card.addClass('is-selected');
+
+					const cardHeader = card.createDiv({ cls: 'guru-card-header' });
+					const repoLink = cardHeader.createEl('a', {
+						text: tracked.repo_full_name,
+						href: repo?.html_url || `https://github.com/${tracked.repo_full_name}`
+					});
+					repoLink.setAttr('target', '_blank');
+
+					if (!repo) {
+						card.createDiv({ cls: 'guru-repo-error', text: 'No data yet — click Refresh to fetch.' });
+					} else if (repo.fetch_error) {
+						card.createDiv({ cls: 'guru-repo-error', text: `Error: ${repo.fetch_error}` });
+					} else {
+						if (repo.description) {
+							card.createDiv({ cls: 'guru-repo-desc', text: repo.description });
+						}
+
+						const statsRow = card.createDiv({ cls: 'guru-stats-row' });
+
+						const starStat = statsRow.createDiv({ cls: 'guru-stat-item' });
+						setIcon(starStat, 'star');
+						starStat.createSpan({ text: ` ${repo.stargazers_count} stars` });
+
+						const issueStat = statsRow.createDiv({ cls: 'guru-stat-item' });
+						setIcon(issueStat, 'alert-circle');
+						issueStat.createSpan({ text: ` ${repo.open_issues_count} open issues` });
+
+						const forkStat = statsRow.createDiv({ cls: 'guru-stat-item' });
+						setIcon(forkStat, 'git-fork');
+						forkStat.createSpan({ text: ` ${repo.forks_count} forks` });
+
+						const footer = card.createDiv({ cls: 'guru-card-footer' });
+						if (repo.latest_release_tag) {
+							const releaseBadge = footer.createDiv({ cls: 'guru-release-badge' });
+							setIcon(releaseBadge, 'tag');
+							const relLink = releaseBadge.createEl('a', { text: repo.latest_release_tag, href: repo.latest_release_url || repo.html_url });
+							relLink.setAttr('target', '_blank');
+						} else {
+							footer.createDiv({ cls: 'guru-no-release', text: 'No releases' });
+						}
+
+						const releaseDate = repo.latest_release_date ? new Date(repo.latest_release_date) : null;
+						const now = new Date();
+
+						const releaseTextEl = footer.createDiv({ cls: 'guru-last-push' });
+						let daysAgo: number | null = null;
+
+						if (releaseDate) {
+							const diffTime = Math.abs(now.getTime() - releaseDate.getTime());
+							daysAgo = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+							releaseTextEl.createSpan({ text: `Last released ${daysAgo} day${daysAgo === 1 ? '' : 's'} ago` });
+						} else {
+							releaseTextEl.createSpan({ text: 'Never released' });
+						}
+
+						const targetPeriod = repo.release_period_days;
+						if (targetPeriod !== null && targetPeriod !== undefined) {
+							const isOverdue = daysAgo === null || daysAgo > targetPeriod;
+							if (isOverdue) {
+								const warningDot = releaseTextEl.createSpan({ cls: 'guru-overdue-dot' });
+								warningDot.setAttr('title', `Overdue! Target release period is ${targetPeriod} days.`);
+							}
+						}
+					}
+
+					// Bring this card to the front of the deck and show its history.
+					card.addEventListener('click', () => {
+						this.repoStackOrder = [name, ...this.repoStackOrder.filter(n => n !== name)];
+						this.selectedStarRepo = name;
+						renderStackAndChart();
+					});
+				});
+
+				// --- Star history chart ---
+				historyPanel.empty();
+				const historySection = historyPanel.createDiv({ cls: 'history-section' });
+				const historyHeader = historySection.createDiv({ cls: 'history-header' });
+				historyHeader.createEl('h3', {
+					text: this.selectedStarRepo === 'all' ? 'Star History — All Repositories' : `Star History — ${this.selectedStarRepo}`
+				});
+
+				const allReposPill = historyHeader.createEl('button', {
+					cls: `history-select ${this.selectedStarRepo === 'all' ? 'is-active' : ''}`,
+					text: 'All Repos (total)'
+				});
+				allReposPill.addEventListener('click', () => {
+					this.selectedStarRepo = 'all';
+					renderStackAndChart();
+				});
+
+				const historyChartContainer = historySection.createDiv({ cls: 'history-chart-container' });
+
+				let chartSeries: HistoryChartSeries[];
+				if (this.selectedStarRepo === 'all') {
+					// Sum, not one line per repo: step-interpolate each repo's sparse
+					// series at every date any repo changed, then add them up.
+					const perRepoSeries = trackedRepos.map(r => seriesForRepo(r.repo_full_name));
+					const allDates = Array.from(new Set(perRepoSeries.flat().map(p => p.date))).sort();
+					chartSeries = [{
+						name: 'All Repositories (total)',
+						color: CATEGORICAL_PALETTE[0],
+						points: allDates.map(date => ({
+							date,
+							value: perRepoSeries.reduce((sum, points) => sum + valueAsOf(points, date), 0)
+						}))
+					}];
+				} else {
+					const repo = trackedRepos.find(r => r.repo_full_name === this.selectedStarRepo);
+					chartSeries = repo ? [{
+						name: repo.repo_full_name,
+						color: CATEGORICAL_PALETTE[0],
+						points: seriesForRepo(repo.repo_full_name)
+					}] : [];
 				}
+
+				renderHistoryChart(historyChartContainer, chartSeries, {
+					emptyMessage: 'Star history will appear here after a day or two of snapshots — check back soon.'
+				});
+			};
+
+			renderStackAndChart();
+		};
+
+		await renderFromViews();
+
+		refreshBtn.addEventListener('click', async () => {
+			refreshIconSpan.addClass('spin-anim');
+			refreshBtn.disabled = true;
+			try {
+				const result = await supabaseInvoke<GithubRefreshResponse>(this.plugin, 'github-refresh', {});
+				const failed = result.repos.filter(r => !r.ok);
+				if (failed.length > 0) {
+					new Notice(`⚠️ Refreshed with ${failed.length} error(s): ${failed.map(f => f.repo).join(', ')}`);
+				} else {
+					new Notice(`✅ Refreshed ${result.repos.length} repo(s), ${result.newEventCount} new event(s).`);
+				}
+			} catch (err) {
+				new Notice(`❌ Refresh failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
 			}
+			await renderFromViews();
+			refreshIconSpan.removeClass('spin-anim');
+			refreshBtn.disabled = false;
 		});
 	}
 
@@ -371,74 +496,140 @@ export class DashboardView extends ItemView {
 		titleText.createEl('h2', { text: 'Mental Gymnast Dashboard' });
 		titleText.createEl('p', { text: 'Sharpen your mind and track your cognitive & strategic growth.' });
 
-		const username = this.plugin.settings.lichessUsername || 'tomatopotato69';
-
-		const refreshBtn = titleRow.createEl('button', { cls: 'dashboard-btn', title: 'Refresh Lichess stats' });
-		setIcon(refreshBtn, 'refresh-cw');
+		// Refresh Button — invokes the lichess-refresh Edge Function to pull a
+		// fresh rating right now (independent of the daily cron run).
+		const refreshBtn = titleRow.createEl('button', { cls: 'dashboard-btn', title: 'Fetch fresh data from Lichess now' });
+		const refreshIconSpan = refreshBtn.createSpan({ cls: 'guru-refresh-icon' });
+		setIcon(refreshIconSpan, 'refresh-cw');
 		refreshBtn.createSpan({ text: ' Refresh' });
-		refreshBtn.addEventListener('click', () => this.renderMentalGymnastContent(contentWrapper, mainWrapper));
 
-		const container = contentWrapper.createDiv({ cls: 'gymnast-container' });
-		const loadingMsg = container.createDiv({ cls: 'gymnast-loading-msg', text: `Fetching Lichess data for @${username}...` });
-
-		const lichessData = await fetchLichessUserData(username);
-		container.empty();
-
-		if (lichessData.error) {
-			const errorCard = container.createDiv({ cls: 'gymnast-error-card' });
-			errorCard.createEl('h3', { text: `Failed to load Lichess stats for @${username}` });
-			errorCard.createEl('p', { text: lichessData.error });
+		if (!hasSupabaseConfig(this.plugin)) {
+			const container = contentWrapper.createDiv({ cls: 'gymnast-container' });
+			const emptyState = container.createDiv({ cls: 'gymnast-error-card' });
+			emptyState.createEl('p', { text: 'Connect Supabase in Settings to start tracking your Lichess rating.' });
+			const settingsBtn = emptyState.createEl('button', { cls: 'dashboard-btn', text: 'Open Settings' });
+			settingsBtn.addEventListener('click', () => this.openSettings());
 			return;
 		}
 
-		const card = container.createDiv({ cls: 'gymnast-rapid-card' });
+		const container = contentWrapper.createDiv({ cls: 'gymnast-container' });
+		container.createDiv({ cls: 'gymnast-loading-msg', text: 'Loading...' });
 
-		// Top Row: User details & Status
-		const cardHeader = card.createDiv({ cls: 'gymnast-card-header' });
-		const userTitleRow = cardHeader.createDiv({ cls: 'gymnast-user-title-row' });
-		
-		if (lichessData.title) {
-			userTitleRow.createSpan({ cls: 'gymnast-user-badge', text: lichessData.title });
-		}
+		// Cheap, Supabase-only reads — no external Lichess call happens just
+		// from opening this tab; that only happens via Refresh or cron.
+		const renderFromViews = async () => {
+			container.empty();
 
-		const userLink = userTitleRow.createEl('a', { cls: 'gymnast-user-link', text: `@${lichessData.username}`, href: lichessData.url });
-		userLink.setAttr('target', '_blank');
+			const [latestRows, ratingHistoryRows] = await Promise.all([
+				supabaseSelect<LichessLatestRow>(this.plugin, 'v_lichess_latest'),
+				supabaseSelect<LichessRatingHistoryRow>(this.plugin, 'v_lichess_rating_history')
+			]);
 
-		const statusDot = userTitleRow.createSpan({ cls: `gymnast-status-dot ${lichessData.online ? 'is-online' : 'is-offline'}` });
-		statusDot.setAttr('title', lichessData.online ? 'Online on Lichess' : 'Offline');
+			const latest = latestRows[0];
 
-		// Main Rapid Stat Display
-		const rapidPerf = lichessData.perfs.rapid;
-		const statBody = card.createDiv({ cls: 'gymnast-rapid-body' });
-		
-		const labelRow = statBody.createDiv({ cls: 'gymnast-rapid-label' });
-		setIcon(labelRow, 'trophy');
-		labelRow.createSpan({ text: ' Lichess Rapid Rating' });
-
-		const ratingRow = statBody.createDiv({ cls: 'gymnast-rapid-rating-row' });
-		const ratingDisplay = rapidPerf?.rating ? rapidPerf.rating.toString() : 'Unrated';
-		ratingRow.createDiv({ cls: 'gymnast-rapid-rating-num', text: ratingDisplay });
-
-		if (rapidPerf?.prog !== undefined) {
-			const isPos = rapidPerf.prog > 0;
-			const isNeg = rapidPerf.prog < 0;
-			const sign = isPos ? '+' : '';
-			const trendClass = isPos ? 'trend-up' : isNeg ? 'trend-down' : 'trend-neutral';
-			const trendIcon = isPos ? 'trending-up' : isNeg ? 'trending-down' : 'minus';
-			
-			const trendBadge = ratingRow.createDiv({ cls: `gymnast-rapid-trend-badge ${trendClass}` });
-			setIcon(trendBadge, trendIcon);
-			trendBadge.createSpan({ text: `${sign}${rapidPerf.prog}` });
-		}
-
-		// Footer meta info
-		const cardFooter = card.createDiv({ cls: 'gymnast-rapid-footer' });
-		if (rapidPerf) {
-			cardFooter.createSpan({ text: `Total Games: ${rapidPerf.games}` });
-			if (rapidPerf.prov) {
-				cardFooter.createSpan({ cls: 'gymnast-prov-tag', text: 'Provisional' });
+			if (!latest) {
+				const emptyState = container.createDiv({ cls: 'gymnast-error-card' });
+				emptyState.createEl('h3', { text: 'No Lichess data yet' });
+				emptyState.createEl('p', { text: 'Click Refresh to fetch your rating for the first time.' });
+				return;
 			}
-		}
+
+			if (latest.fetch_error) {
+				const errorCard = container.createDiv({ cls: 'gymnast-error-card' });
+				errorCard.createEl('h3', { text: `Failed to load Lichess stats for @${latest.username}` });
+				errorCard.createEl('p', { text: latest.fetch_error });
+				return;
+			}
+
+			const row = container.createDiv({ cls: 'gymnast-row' });
+			const card = row.createDiv({ cls: 'gymnast-rapid-card' });
+
+			// Top Row: User details & Status
+			const cardHeader = card.createDiv({ cls: 'gymnast-card-header' });
+			const userTitleRow = cardHeader.createDiv({ cls: 'gymnast-user-title-row' });
+
+			if (latest.title) {
+				userTitleRow.createSpan({ cls: 'gymnast-user-badge', text: latest.title });
+			}
+
+			const userLink = userTitleRow.createEl('a', { cls: 'gymnast-user-link', text: `@${latest.username}`, href: latest.profile_url });
+			userLink.setAttr('target', '_blank');
+
+			const statusDot = userTitleRow.createSpan({ cls: `gymnast-status-dot ${latest.online ? 'is-online' : 'is-offline'}` });
+			statusDot.setAttr('title', latest.online ? 'Online on Lichess' : 'Offline');
+
+			// Main Rapid Stat Display
+			const statBody = card.createDiv({ cls: 'gymnast-rapid-body' });
+
+			const labelRow = statBody.createDiv({ cls: 'gymnast-rapid-label' });
+			setIcon(labelRow, 'trophy');
+			labelRow.createSpan({ text: ' Lichess Rapid Rating' });
+
+			const ratingRow = statBody.createDiv({ cls: 'gymnast-rapid-rating-row' });
+			const ratingDisplay = latest.rating_rapid ? latest.rating_rapid.toString() : 'Unrated';
+			ratingRow.createDiv({ cls: 'gymnast-rapid-rating-num', text: ratingDisplay });
+
+			if (latest.prog_rapid !== null && latest.prog_rapid !== undefined) {
+				const isPos = latest.prog_rapid > 0;
+				const isNeg = latest.prog_rapid < 0;
+				const sign = isPos ? '+' : '';
+				const trendClass = isPos ? 'trend-up' : isNeg ? 'trend-down' : 'trend-neutral';
+				const trendIcon = isPos ? 'trending-up' : isNeg ? 'trending-down' : 'minus';
+
+				const trendBadge = ratingRow.createDiv({ cls: `gymnast-rapid-trend-badge ${trendClass}` });
+				setIcon(trendBadge, trendIcon);
+				trendBadge.createSpan({ text: `${sign}${latest.prog_rapid}` });
+			}
+
+			// Footer meta info
+			const cardFooter = card.createDiv({ cls: 'gymnast-rapid-footer' });
+			if (latest.games_rapid !== null && latest.games_rapid !== undefined) {
+				cardFooter.createSpan({ text: `Total Games: ${latest.games_rapid}` });
+				if (latest.prov_rapid) {
+					cardFooter.createSpan({ cls: 'gymnast-prov-tag', text: 'Provisional' });
+				}
+			}
+
+			const historySection = row.createDiv({ cls: 'history-section' });
+			const historyHeader = historySection.createDiv({ cls: 'history-header' });
+			historyHeader.createEl('h3', { text: 'Rapid Rating History' });
+
+			const historyChartContainer = historySection.createDiv({ cls: 'history-chart-container' });
+			renderHistoryChart(historyChartContainer, [{
+				name: 'Rapid Rating',
+				color: CATEGORICAL_PALETTE[0],
+				points: ratingHistoryRows.map(r => ({ date: r.snapshot_date, value: r.rating_rapid }))
+			}], {
+				emptyMessage: 'Rating history will appear here after a day or two of snapshots — check back soon.'
+			});
+		};
+
+		await renderFromViews();
+
+		refreshBtn.addEventListener('click', async () => {
+			refreshIconSpan.addClass('spin-anim');
+			refreshBtn.disabled = true;
+			try {
+				const result = await supabaseInvoke<LichessRefreshResponse>(this.plugin, 'lichess-refresh', {});
+				if (result.error) {
+					new Notice(`⚠️ Refreshed with an error: ${result.error}`);
+				} else {
+					new Notice(`✅ Rating refreshed: ${result.rating ?? 'Unrated'}`);
+				}
+			} catch (err) {
+				new Notice(`❌ Refresh failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+			}
+			await renderFromViews();
+			refreshIconSpan.removeClass('spin-anim');
+			refreshBtn.disabled = false;
+		});
+	}
+
+	private openSettings(): void {
+		// @ts-ignore - Obsidian's internal setting object isn't in the public API surface
+		this.app.setting.open();
+		// @ts-ignore
+		this.app.setting.openTabById(this.plugin.manifest.id);
 	}
 
 	private updateClock(): void {
