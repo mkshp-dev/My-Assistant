@@ -13,14 +13,40 @@ import {
 	RepoEventRow,
 	LichessLatestRow,
 	LichessRatingHistoryRow,
+	PersonaProgressLatestRow,
+	PersonaProgressHistoryRow,
+	HabitStreakRow,
 	GithubRefreshResponse,
-	LichessRefreshResponse
+	LichessRefreshResponse,
+	FrameworkSyncResponse
 } from '../utils/supabase';
 import { renderHistoryChart, HistoryChartSeries, CATEGORICAL_PALETTE } from './history-chart';
+import { renderStatTile, renderProgressBar } from './widgets';
+import { computeFrameworkProgress } from '../utils/framework-progress';
 
 export const DASHBOARD_VIEW_TYPE = 'my-assistant-dashboard';
 
-export type DashboardTab = 'central' | 'obsidian-guru' | 'mental-gymnast';
+interface PersonaDashboardConfig {
+	id: string;
+	label: string;
+	personaName: string;
+	coverAsset?: string;
+	renderBespoke?: (container: HTMLElement, mainWrapper: HTMLElement) => void | Promise<void>;
+}
+
+const PERSONA_DASHBOARDS: PersonaDashboardConfig[] = [
+	{ id: 'central', label: 'Central Dashboard', personaName: '' },
+	{ id: 'a-phd', label: 'A PhD', personaName: 'A PhD' },
+	{ id: 'amazing-athlete', label: 'Amazing Athlete', personaName: 'Amazing Athlete' },
+	{ id: 'career-architect', label: 'Career Architect', personaName: 'Career Architect' },
+	{ id: 'heart-maestro', label: 'Heart Maestro', personaName: 'Heart Maestro' },
+	{ id: 'mental-gymnast', label: 'Mental Gymnast', personaName: 'Mental Gymnast' },
+	{ id: 'obsidian-guru', label: 'Obsidian Guru', personaName: 'Obsidian Guru' },
+	{ id: 'open-source-maseiha', label: 'Open Source Maseiha', personaName: 'Open Source Maseiha' },
+	{ id: 'prosperity-engineer', label: 'Prosperity Engineer', personaName: 'Prosperity Engineer' },
+	{ id: 'super-hustler', label: 'Super Hustler', personaName: 'Super Hustler' },
+	{ id: 'the-grounded-one', label: 'The Grounded One', personaName: 'The Grounded One' }
+];
 
 const REPO_STACK_CARD_OFFSET = 20;
 const REPO_STACK_CARD_HEIGHT = 240;
@@ -38,9 +64,10 @@ function valueAsOf(points: HistoryChartSeries['points'], date: string): number {
 
 export class DashboardView extends ItemView {
 	plugin: MyPlugin;
-	private activeTab: DashboardTab = 'central';
+	private activeTabId: string = 'central';
 	private selectedStarRepo: string = 'all';
 	private repoStackOrder: string[] = [];
+	private lastFrameworkSyncDate: string = '';
 
 	private currentQuote: ZenQuote | null = null;
 	private currentPhoto: UnsplashPhoto | null = null;
@@ -55,6 +82,15 @@ export class DashboardView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
+		this.setupPersonaDashboardsWithBespoke();
+	}
+
+	private setupPersonaDashboardsWithBespoke(): void {
+		const guruConfig = PERSONA_DASHBOARDS.find(p => p.personaName === 'Obsidian Guru');
+		const gymnastConfig = PERSONA_DASHBOARDS.find(p => p.personaName === 'Mental Gymnast');
+
+		if (guruConfig) guruConfig.renderBespoke = (c, m) => this.renderObsidianGuruContent(c, m);
+		if (gymnastConfig) gymnastConfig.renderBespoke = (c, m) => this.renderMentalGymnastContent(c, m);
 	}
 
 	getViewType(): string {
@@ -86,51 +122,181 @@ export class DashboardView extends ItemView {
 		// Main container
 		const mainWrapper = root.createDiv({ cls: 'dashboard-content-container' });
 
-		// Persona Switcher Bar
-		const navBar = mainWrapper.createDiv({ cls: 'dashboard-nav-bar' });
-		
-		const centralBtn = navBar.createEl('button', {
-			cls: `dashboard-nav-tab ${this.activeTab === 'central' ? 'is-active' : ''}`,
-			text: 'Central Dashboard'
+		// Top-right Persona Switcher Dropdown
+		const topBar = mainWrapper.createDiv({ cls: 'dashboard-top-bar' });
+
+		const selectorContainer = topBar.createDiv({ cls: 'dashboard-persona-selector-container' });
+		const activeTabConfig = PERSONA_DASHBOARDS.find(t => t.id === this.activeTabId);
+		const currentLabel = activeTabConfig?.label || 'Central Dashboard';
+
+		const selectorBtn = selectorContainer.createEl('button', {
+			cls: 'dashboard-persona-selector-btn',
+			text: currentLabel
 		});
-		centralBtn.addEventListener('click', () => {
-			if (this.activeTab !== 'central') {
-				this.activeTab = 'central';
-				this.renderDashboard();
-			}
+		setIcon(selectorBtn, 'chevron-down');
+
+		const dropdown = selectorContainer.createDiv({ cls: 'dashboard-persona-dropdown' });
+		dropdown.style.display = 'none';
+
+		selectorBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
 		});
 
-		const guruBtn = navBar.createEl('button', {
-			cls: `dashboard-nav-tab ${this.activeTab === 'obsidian-guru' ? 'is-active' : ''}`,
-			text: 'Obsidian Guru'
-		});
-		guruBtn.addEventListener('click', () => {
-			if (this.activeTab !== 'obsidian-guru') {
-				this.activeTab = 'obsidian-guru';
-				this.renderDashboard();
-			}
-		});
+		// Populate dropdown with all personas
+		for (const tabConfig of PERSONA_DASHBOARDS) {
+			const item = dropdown.createEl('div', {
+				cls: `dashboard-dropdown-item ${this.activeTabId === tabConfig.id ? 'is-active' : ''}`,
+				text: tabConfig.label
+			});
+			item.addEventListener('click', () => {
+				if (this.activeTabId !== tabConfig.id) {
+					this.activeTabId = tabConfig.id;
+					dropdown.style.display = 'none';
+					this.renderDashboard();
+				}
+			});
+		}
 
-		const gymnastBtn = navBar.createEl('button', {
-			cls: `dashboard-nav-tab ${this.activeTab === 'mental-gymnast' ? 'is-active' : ''}`,
-			text: 'Mental Gymnast'
-		});
-		gymnastBtn.addEventListener('click', () => {
-			if (this.activeTab !== 'mental-gymnast') {
-				this.activeTab = 'mental-gymnast';
-				this.renderDashboard();
+		// Close dropdown when clicking outside
+		document.addEventListener('click', (e) => {
+			if (!selectorContainer.contains(e.target as Node)) {
+				dropdown.style.display = 'none';
 			}
 		});
 
 		// Dynamic content container
 		this.contentContainerEl = mainWrapper.createDiv({ cls: 'dashboard-tab-content' });
 
-		if (this.activeTab === 'central') {
-			this.renderCentralContent(this.contentContainerEl, mainWrapper);
-		} else if (this.activeTab === 'obsidian-guru') {
-			this.renderObsidianGuruContent(this.contentContainerEl, mainWrapper);
+		if (activeTabConfig) {
+			if (this.activeTabId === 'central') {
+				this.renderCentralContent(this.contentContainerEl, mainWrapper);
+			} else {
+				this.renderPersonaContent(this.contentContainerEl, mainWrapper, activeTabConfig);
+			}
+		}
+	}
+
+	private async renderPersonaContent(contentWrapper: HTMLElement, mainWrapper: HTMLElement, config: PersonaDashboardConfig): Promise<void> {
+		contentWrapper.empty();
+		if (this.currentPhoto) {
+			this.applyBackground(this.currentPhoto);
 		} else {
-			this.renderMentalGymnastContent(this.contentContainerEl, mainWrapper);
+			this.loadBackground();
+		}
+
+		// Render the generic framework progress panel
+		await this.renderFrameworkProgressPanel(contentWrapper, config.personaName);
+
+		// If this persona has a bespoke renderer (Guru/Gymnast), call it after the generic panel
+		if (config.renderBespoke) {
+			await config.renderBespoke(contentWrapper, mainWrapper);
+		}
+	}
+
+	private async renderFrameworkProgressPanel(container: HTMLElement, personaName: string): Promise<void> {
+		if (!hasSupabaseConfig(this.plugin)) {
+			const emptyState = container.createDiv({ cls: 'framework-empty-state' });
+			emptyState.createEl('p', { text: 'Connect Supabase in Settings to see framework progress.' });
+			const settingsBtn = emptyState.createEl('button', { cls: 'dashboard-btn', text: 'Open Settings' });
+			settingsBtn.addEventListener('click', () => this.openSettings());
+			return;
+		}
+
+		const panelDiv = container.createDiv({ cls: 'framework-progress-panel' });
+		panelDiv.createDiv({ cls: 'framework-loading-msg', text: 'Loading progress...' });
+
+		try {
+			const [latestRows, historyRows, habitRows] = await Promise.all([
+				supabaseSelect<PersonaProgressLatestRow>(this.plugin, 'v_persona_progress_latest'),
+				supabaseSelect<PersonaProgressHistoryRow>(this.plugin, 'v_persona_progress_history'),
+				supabaseSelect<HabitStreakRow>(this.plugin, 'v_habit_streaks_latest')
+			]);
+
+			panelDiv.empty();
+
+			const latest = latestRows.find(r => r.persona === personaName);
+			if (!latest) {
+				panelDiv.createDiv({ cls: 'framework-no-data', text: `No framework data synced yet for ${personaName}` });
+				return;
+			}
+
+			// Header with persona name
+			const header = panelDiv.createDiv({ cls: 'framework-header' });
+			header.createEl('h3', { text: `${personaName} Progress` });
+
+			// Stats row: active quests, duties, tasks
+			const statsGrid = panelDiv.createDiv({ cls: 'framework-stats-grid' });
+			renderStatTile(statsGrid, { label: 'Active Quests', value: latest.active_quest_count, icon: '🎯' });
+			renderStatTile(statsGrid, { label: 'Active Duties', value: latest.active_duty_count, icon: '📋' });
+			renderStatTile(statsGrid, { label: 'Active Tasks', value: latest.active_task_count, icon: '✓' });
+			renderStatTile(statsGrid, { label: 'Done Today', value: latest.done_task_count, icon: '✅' });
+
+			// Stage & Milestone progress
+			const progressGrid = panelDiv.createDiv({ cls: 'framework-progress-grid' });
+			if (latest.active_stage && latest.stage_progress_pct !== null) {
+				renderProgressBar(progressGrid, {
+					label: `Stage: ${latest.active_stage}`,
+					pct: latest.stage_progress_pct,
+					sublabel: `${latest.stage_progress_pct}% complete`
+				});
+			}
+			if (latest.active_milestone && latest.milestone_progress_pct !== null) {
+				renderProgressBar(progressGrid, {
+					label: `Milestone: ${latest.active_milestone}`,
+					pct: latest.milestone_progress_pct,
+					sublabel: `${latest.milestone_progress_pct}% complete`
+				});
+			}
+
+			// Habit streaks
+			const personaHabits = habitRows.filter(h => h.persona === personaName);
+			if (personaHabits.length > 0) {
+				const habitsSection = panelDiv.createDiv({ cls: 'framework-habits-section' });
+				habitsSection.createEl('h4', { text: 'Habit Streaks' });
+				const habitsList = habitsSection.createDiv({ cls: 'framework-habits-list' });
+
+				for (const habit of personaHabits) {
+					const habitCard = habitsList.createDiv({ cls: 'framework-habit-card' });
+					habitCard.createDiv({ cls: 'framework-habit-name', text: habit.habit_name });
+					const streakRow = habitCard.createDiv({ cls: 'framework-habit-streak-row' });
+					streakRow.createSpan({ cls: 'framework-streak-number', text: `${habit.current_streak} day streak` });
+					if (habit.completed_today) {
+						streakRow.createSpan({ cls: 'framework-habit-done-today', text: '✓ Today' });
+					}
+				}
+			}
+
+			// Active/Done task trend chart
+			const historyForPersona = historyRows.filter(r => r.persona === personaName);
+			if (historyForPersona.length > 1) {
+				const chartSection = panelDiv.createDiv({ cls: 'history-section' });
+				chartSection.createEl('h4', { text: 'Task Trend' });
+				const chartContainer = chartSection.createDiv({ cls: 'history-chart-container' });
+
+				const activeSeries: HistoryChartSeries['points'] = historyForPersona.map(r => ({
+					date: r.snapshot_date,
+					value: r.active_task_count
+				}));
+				const doneSeries: HistoryChartSeries['points'] = historyForPersona.map(r => ({
+					date: r.snapshot_date,
+					value: r.done_task_count
+				}));
+
+				renderHistoryChart(chartContainer, [
+					{ name: 'Active Tasks', color: CATEGORICAL_PALETTE[0], points: activeSeries },
+					{ name: 'Done (today)', color: CATEGORICAL_PALETTE[1], points: doneSeries }
+				], {
+					emptyMessage: 'Task history will appear after framework sync runs.'
+				});
+			}
+		} catch (err) {
+			panelDiv.empty();
+			const errorDiv = panelDiv.createDiv({ cls: 'framework-error' });
+			errorDiv.createEl('p', { text: 'Failed to load framework progress.' });
+			if (err instanceof Error) {
+				errorDiv.createSpan({ cls: 'framework-error-detail', text: err.message });
+			}
 		}
 	}
 

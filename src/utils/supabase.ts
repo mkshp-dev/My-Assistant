@@ -232,3 +232,41 @@ export interface LichessAdminResponse {
 	ok: boolean;
 	username: string;
 }
+
+export interface PersonaProgressLatestRow {
+	persona: string;
+	snapshot_date: string;
+	active_quest_count: number;
+	active_duty_count: number;
+	active_task_count: number;
+	done_task_count: number;
+	active_stage: string | null;
+	stage_progress_pct: number | null;
+	active_milestone: string | null;
+	milestone_progress_pct: number | null;
+}
+
+export interface PersonaProgressHistoryRow {
+	persona: string;
+	snapshot_date: string;
+	active_quest_count: number;
+	active_duty_count: number;
+	active_task_count: number;
+	done_task_count: number;
+}
+
+export interface HabitStreakRow {
+	persona: string;
+	habit_name: string;
+	snapshot_date: string;
+	current_streak: number;
+	completed_today: boolean;
+}
+
+export interface FrameworkSyncResponse {
+	ok: boolean;
+	snapshotDate: string;
+	personasProcessed: number;
+	habitsProcessed: number;
+	error?: string;
+}

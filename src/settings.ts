@@ -12,8 +12,10 @@ import {
 	GithubAdminTestRepoResponse,
 	GithubAdminBackfillStarsResponse,
 	LichessAdminResponse,
-	LichessAdminBackfillResponse
+	LichessAdminBackfillResponse,
+	FrameworkSyncResponse
 } from './utils/supabase';
+import { computeFrameworkProgress } from './utils/framework-progress';
 
 interface EditableRepo {
 	repo: string;
@@ -198,6 +200,45 @@ export class PersonaSettingTab extends PluginSettingTab {
 							new Notice('✅ Supabase connection successful!');
 						} else {
 							new Notice(`❌ Supabase connection failed: ${result.error}`);
+						}
+					});
+			});
+
+		container.createEl('h2', { text: 'Framework Progress Sync' });
+		container.createEl('p', {
+			cls: 'setting-item-description',
+			text: 'Sync your vault\'s persona/quest/duty/task progress to Supabase for visualization in the dashboards. This reads all frontmatter from your vault.'
+		});
+
+		new Setting(container)
+			.setName('Sync Framework Progress Now')
+			.setDesc('Scans your vault and uploads progress metrics for all personas to Supabase.')
+			.addButton(btn => {
+				btn.setButtonText('Sync Now')
+					.onClick(async () => {
+						btn.setDisabled(true);
+						btn.setButtonText('Syncing...');
+						try {
+							const progress = await computeFrameworkProgress(this.app);
+							const today = new Date().toISOString().split('T')[0];
+							const response = await supabaseInvoke<FrameworkSyncResponse>(
+								this.plugin,
+								'framework-sync',
+								{ snapshotDate: today, personas: progress }
+							);
+
+							btn.setDisabled(false);
+							btn.setButtonText('Sync Now');
+
+							if (response.ok) {
+								new Notice(`✅ Synced ${response.personasProcessed} personas, ${response.habitsProcessed} habit streaks.`);
+							} else {
+								new Notice(`❌ Sync failed: ${response.error}`);
+							}
+						} catch (err) {
+							btn.setDisabled(false);
+							btn.setButtonText('Sync Now');
+							new Notice(`❌ Sync failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
 						}
 					});
 			});
