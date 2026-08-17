@@ -26,3 +26,7 @@ docs-site/.docusaurus
 # Sample vault files
 SampleFiles/
 
+# Local Supabase CLI env (supabase/.gitignore already covers .branches/.temp)
+.env
+.env.local
+
